@@ -74,7 +74,7 @@ Every timer is `Persistent=true`: a job missed while the laptop was off runs at 
 
 The file is in `/etc/claude-code/`, owned by root: neither the user, nor a project's `.claude/settings.json`, nor Claude itself can change it.
 
-- **Always ask.** No auto mode, no bypass mode. Only the managed rules count (`allowManagedPermissionRulesOnly`): an "always allow" answer or a cloned repository cannot add rules, hooks or MCP servers.
+- **Always ask.** No auto mode, no bypass mode. Only the managed rules count (`allowManagedPermissionRulesOnly`): an "always allow" answer or a cloned repository cannot add rules, hooks or MCP servers. The claude.ai connectors (Google Drive, Claude Docs), which come with the account login, are off (`disableClaudeAiConnectors`).
 - **Sandbox, failing closed.** Every shell command runs in bubblewrap: it writes only in the working directory and reaches only the allowed domains (`github.com`); anything else is asked. Claude does not start if the sandbox cannot (`failIfUnavailable`) and never retries a command outside it (`allowUnsandboxedCommands: false`).
 - **Reads only in the working directory** (`blockReadsOutsideWorkingDirectories`), plus deny rules for the secrets (`~/.ssh`, keyrings, browser profiles, `vault.yml`, `.env`) in case Claude is started in the wrong place.
 - **No production.** `ssh`, `ansible-playbook`, `ansible-vault`, `git push`, `sudo` are denied. The prefix rules are a speed bump; the barriers are the sandbox network (no route to the servers), sudo's password and the YubiKey's PIN and touch.

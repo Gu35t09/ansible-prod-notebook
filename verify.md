@@ -90,6 +90,8 @@ In `mkdir -p ~/progetti/prova && cd ~/progetti/prova && claude`, ask Claude to r
 | `touch ~/fuori.txt` | Looks successful inside the sandbox, but the home is a private, throwaway view there: then, as `v` in a terminal, `ls ~/fuori.txt` must say "No such file". No retry outside the sandbox |
 | `cat ~/.ssh/config` | "No such file or directory": the sandbox hides the home, so an existing file and a missing one look the same |
 
+`/mcp` must list no server: the claude.ai connectors are disabled.
+
 Then `/permissions`: the deny rules include `Bash(ssh *)`, `Bash(sudo *)`, `Bash(git push *)` and the `Read(~/.ssh/**)` family; `/status` lists the managed settings among the sources; Shift+Tab must not offer auto or bypass mode.
 
 A secret inside the project folder: as `v`, `echo 'SECRET=fake' > ~/progetti/prova/.env`, then ask Claude to read `.env` with its read tool (refused by the permissions), and to run `cat .env` (in the sandbox the file is replaced by an empty device: "Permission denied"). Remove it yourself afterwards: `rm ~/progetti/prova/.env` (Claude cannot: in the sandbox it is not the real file). Checked on the VM.

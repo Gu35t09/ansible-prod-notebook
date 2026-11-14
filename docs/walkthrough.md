@@ -385,6 +385,7 @@ Key by key:
 | `allowManagedPermissionRulesOnly` | `true` | Only the rules in this file count: a repository's `.claude/settings.json`, the user's settings and the "always allow" answers cannot add rules. Every prompt is asked again in each session |
 | `allowManagedHooksOnly` | `true` | No hooks from a project or the user: a cloned repository cannot run commands at Claude's events |
 | `allowManagedMcpServersOnly` | `true` | No MCP servers, since none is defined here |
+| `disableClaudeAiConnectors` | `true` | No claude.ai connectors (Google Drive, Claude Docs). They come with the account login, so the key above does not stop them: on the test VM `/mcp` listed both. They would let Claude Code, in any project, read the cloud documents and write outside the laptop, past the sandbox and the domain list. They stay available on claude.ai in the browser |
 | `cleanupPeriodDays` | 30 | Transcripts in `~/.claude` are deleted after 30 days |
 | `sandbox.enabled` | `true` | Every shell command runs in bubblewrap |
 | `sandbox.failIfUnavailable` | `true` | Claude does not start if the sandbox cannot |

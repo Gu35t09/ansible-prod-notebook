@@ -113,6 +113,12 @@ claude_code_managed_settings:
   allowManagedPermissionRulesOnly: true
   allowManagedHooksOnly: true
   allowManagedMcpServersOnly: true
+  # The claude.ai connectors (Google Drive, Claude Docs) come with the account
+  # login, not from a local configuration, so the line above does not stop
+  # them (seen on the test VM). They would give Claude Code, in any project,
+  # read access to the cloud documents and a way to write outside the laptop
+  # that bypasses the sandbox. Off here; still available on claude.ai.
+  disableClaudeAiConnectors: true
   # cleanupPeriodDays (claude_code_cleanup_days) and the sandbox's
   # allowedDomains (claude_code_sandbox_allowed_domains) are added by the task
   # that writes the file: templated here, they could end up as strings, and

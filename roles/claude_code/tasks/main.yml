@@ -242,7 +242,8 @@
       d = json.load(open(sys.argv[1]));
       assert type(d['cleanupPeriodDays']) is int and d['cleanupPeriodDays'] >= 1, 'cleanupPeriodDays';
       assert all(type(x) is str for x in d['sandbox']['network']['allowedDomains']), 'allowedDomains';
-      assert all(type(d['sandbox'][k]) is bool for k in ('enabled', 'failIfUnavailable', 'allowUnsandboxedCommands')), 'sandbox flags'"
+      assert all(type(d['sandbox'][k]) is bool for k in ('enabled', 'failIfUnavailable', 'allowUnsandboxedCommands')), 'sandbox flags';
+      assert d.get('disableClaudeAiConnectors') is True, 'disableClaudeAiConnectors'"
       %s
 
 # --- No user-level install shadowing this one --------------------------------
