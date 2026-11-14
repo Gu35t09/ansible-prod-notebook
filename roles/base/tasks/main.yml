@@ -31,7 +31,7 @@
       APT::Periodic::AutocleanInterval "7";
 
 # 52 comes after the stock 50unattended-upgrades: the origins listed here are
-# added to the stock ones, which may not match on Zorin (see defaults).
+# added to the stock ones (see defaults).
 - name: Configure what unattended-upgrades installs
   ansible.builtin.template:
     src: 52unattended-upgrades-local.j2

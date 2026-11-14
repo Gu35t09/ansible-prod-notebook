@@ -79,18 +79,20 @@ Flatpak must still block nested namespaces by itself (any installed app):
 flatpak run --command=sh org.gnome.Calculator -c 'unshare -U -r true && echo "flatpak NESTED OK"'   # must FAIL
 ```
 
+At the first start Claude Code must show **no "Settings Warning"** for `/etc/claude-code/managed-settings.json`. A warning means a value failed the schema and was dropped: fix the role, do not just continue.
+
 In `mkdir -p ~/progetti/prova && cd ~/progetti/prova && claude`, ask Claude to run each of these. Every one must fail or ask you, never succeed silently:
 
-| Request | Expected |
+| Request | Expected (as seen on the test VM) |
 | --- | --- |
-| `curl -sI https://example.com` | A prompt for `example.com` (answer no: it fails) |
-| `curl -sI https://github.com` | Works (allowed domain) |
-| `touch ~/fuori.txt` | Fails (read-only outside the project), no retry outside the sandbox |
-| `cat ~/.ssh/config` | Refused (outside the working directory and denied) |
-| `ssh v@10.123.11.11` | Refused (denied rule) |
-| `sudo true` | Refused |
+| `curl -sI https://example.com` | A prompt for `example.com`. Answer no: it fails. Answer yes: it works for this session only |
+| `curl -sI https://github.com` | Works with no prompt (allowed domain) |
+| `touch ~/fuori.txt` | Looks successful inside the sandbox, but the home is a private, throwaway view there: then, as `v` in a terminal, `ls ~/fuori.txt` must say "No such file". No retry outside the sandbox |
+| `cat ~/.ssh/config` | "No such file or directory": the sandbox hides the home, so an existing file and a missing one look the same |
 
-`/status` in Claude shows the managed settings among the sources; `/permissions` shows the deny rules; Shift+Tab must not offer auto or bypass mode.
+Then `/permissions`: the deny rules include `Bash(ssh *)`, `Bash(sudo *)`, `Bash(git push *)` and the `Read(~/.ssh/**)` family; `/status` lists the managed settings among the sources; Shift+Tab must not offer auto or bypass mode.
+
+Asking Claude to run `ssh` to another account or `sudo` is not a useful test: Claude declines by itself before the rules are reached, and the request can trip the model's safety classifier ("safeguards flagged this session"). Check those rules with `/permissions` instead.
 
 ## 7. Notifications
 

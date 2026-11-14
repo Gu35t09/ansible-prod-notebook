@@ -171,7 +171,7 @@ Writes `/etc/apt/apt.conf.d/21auto-upgrades-local`. APT reads that directory in 
 **Configure what unattended-upgrades installs**
 Writes `/etc/apt/apt.conf.d/52unattended-upgrades-local`, read after the stock `50unattended-upgrades`.
 
-- **Origins.** The stock file allows `${distro_id}:${distro_codename}-security`, where `distro_id` comes from `lsb_release -i`. On Zorin that is "Zorin", while the Ubuntu archive's packages have origin "Ubuntu": the stock pattern may match nothing, and no security update would be installed by itself. The role adds the origins by name (`base_unattended_origins`): `origin=Ubuntu,archive=noble-security` and `noble-updates`. The lists add up: whatever the stock file allows still applies.
+- **Origins.** The role adds `base_unattended_origins` to the stock list: `origin=Ubuntu,archive=noble-security` and `noble-updates` (bug fixes, as on the server, which Ubuntu does not install by itself). The lists add up. On the test VM the stock list of Zorin 18 already allowed `o=Ubuntu,a=noble-security`, so security updates were covered before the role too; the role names it anyway, so that a change to Zorin's file cannot silently stop them.
 - **Not included**: Zorin's own repository and the Flatpak apps. Zorin's packages arrive through GNOME Software (with the admin password); Flatpak apps update from GNOME Software too.
 - `Automatic-Reboot "false"`: the laptop never reboots by itself. GNOME shows when a reboot is needed.
 - `Remove-Unused-Kernel-Packages`, `Remove-New-Unused-Dependencies`: old kernels and the dependencies an upgrade left behind are removed, so `/boot` does not fill up.
@@ -371,7 +371,9 @@ After an update only the pinned version stays in `/opt/claude-code`.
 ### Managed settings
 
 **Create the managed settings directory** / **Write the managed settings**
-`/etc/claude-code/managed-settings.json`, root-owned, mode 0644. Claude Code reads it on Linux and gives it precedence over the user's, the project's and the command line's settings. The content is `claude_code_managed_settings` in `defaults/main.yml`; key by key:
+`/etc/claude-code/managed-settings.json`, root-owned, mode 0644. Claude Code reads it on Linux and gives it precedence over the user's, the project's and the command line's settings. The content is `claude_code_managed_settings` in `defaults/main.yml`, with two values merged in by the task: `cleanupPeriodDays` (from `claude_code_cleanup_days`) and `sandbox.network.allowedDomains` (from `claude_code_sandbox_allowed_domains`). They are merged inside the single expression that writes the file, so they keep their types: written as `"{{ ... }}"` inside the dictionary, the number came out as the string `"30"` on the test VM, and Claude Code showed "cleanupPeriodDays: Failed schema validation. This field was ignored." A value that fails the schema is dropped while the rest of the file applies: for a security setting that would fail silently. The task's `validate` therefore checks the types (the number, the list of domains, the sandbox switches) before the file replaces the old one.
+
+Key by key:
 
 | Key | Value | Effect |
 | --- | --- | --- |
