@@ -1,0 +1,297 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Looks for the signs left by rootkits and OpenSSH backdoors such as Ebury,
+# and for changes that would hide them or open a way to root:
+#   1. NTP turned off or not synchronized
+#   2. an SSH server installed (the laptop has none)
+#   3. setuid/setgid files, files with no owner, and shared objects that no
+#      package installed, in the library directories
+#   4. libraries preloaded into every process
+#   5. Ebury's abstract UNIX sockets
+#   6. users other than the admin in the admin groups, or granted by sudo
+# Ported from ansible-prod-srv: the sshd logging and ssh.service checks are
+# replaced by 2, and 6 is new.
+# Findings go to the journal at every run and to Telegram when they change,
+# or every {{ integrity_renotify_hours }} hours while they stay the same.
+# Exit codes: 0 nothing found, 1 findings.
+set -u
+export LC_ALL=C
+
+LIB_DIRS=({% for dir in integrity_lib_dirs %}{{ dir | quote }}{{ ' ' if not loop.last }}{% endfor %})
+LIB_ALLOWLIST=({% for pattern in integrity_lib_allowlist %}{{ pattern | quote }}{{ ' ' if not loop.last }}{% endfor %})
+ADMIN_GROUPS=({% for g in integrity_admin_groups %}{{ g | quote }}{{ ' ' if not loop.last }}{% endfor %})
+ALLOWED_ADMINS=({% for u in integrity_allowed_admins %}{{ u | quote }}{{ ' ' if not loop.last }}{% endfor %})
+LABEL={{ notify_host_label | quote }}
+EBURY_SOCKETS=({% for name in integrity_ebury_sockets %}{{ name | quote }}{{ ' ' if not loop.last }}{% endfor %})
+NTP_GRACE_SECONDS=$(( {{ integrity_ntp_grace_minutes | int }} * 60 ))
+RENOTIFY_SECONDS=$(( {{ integrity_renotify_hours | int }} * 3600 ))
+STATE_FILE=/var/lib/integrity-check/state
+HOST=$(hostname)
+# Jinja stops here: the rest is plain bash, where array lengths look like Jinja comments.
+{% raw %}
+
+FINDINGS=()
+finding() {
+    FINDINGS+=("$1")
+}
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+# ------------------------------------------------------------------------ NTP
+check_ntp() {
+    local ntp synced uptime server
+    ntp=$(timedatectl show --property=NTP --value 2>/dev/null)
+    if [ "$ntp" != "yes" ]; then
+        finding "NTP synchronization is turned off (timedatectl NTP=${ntp:-unknown})."
+    fi
+    if ! systemctl is-active --quiet systemd-timesyncd; then
+        finding "systemd-timesyncd is not running."
+    fi
+    uptime=$(cut -d. -f1 /proc/uptime)
+    synced=$(timedatectl show --property=NTPSynchronized --value 2>/dev/null)
+    if [ "$uptime" -ge "$NTP_GRACE_SECONDS" ] && [ "$synced" != "yes" ]; then
+        server=$(timedatectl show-timesync --property=ServerName --value 2>/dev/null)
+        finding "The clock is not synchronized with NTP (server: ${server:-none reachable})."
+    fi
+}
+
+# ----------------------------------------------------------------- SSH server
+# The laptop is a client: an sshd binary or a listening SSH port means
+# someone installed a way in.
+check_no_sshd() {
+    if [ -e /usr/sbin/sshd ]; then
+        finding "an SSH server is installed: $(dpkg -S /usr/sbin/sshd 2>/dev/null || echo '/usr/sbin/sshd, not from a package')"
+    fi
+    if ss -Hltn 'sport = :22' 2>/dev/null | grep -q .; then
+        finding "something listens on TCP port 22: $(ss -Hltnp 'sport = :22' 2>/dev/null | head -n 2 | tr -s ' ' | tr '\n' ' ')"
+    fi
+}
+
+# ------------------------------------------------------------------ libraries
+# True while dpkg holds its lock: during an upgrade, files are briefly
+# unpacked under temporary names. Reads /proc/locks, so dpkg is never blocked.
+dpkg_running() {
+    local lock inode
+    for lock in /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend; do
+        [ -e "$lock" ] || continue
+        inode=$(stat -c %i "$lock")
+        grep -qE ":${inode} " /proc/locks && return 0
+    done
+    return 1
+}
+
+# Every path installed by a package, as listed and with its directory resolved
+# (merged /usr: /lib is a symlink to /usr/lib, and packages list either form).
+# Only the directory is resolved, never the file itself: a packaged symlink
+# that now points somewhere else must not make its new target look packaged.
+build_owned_list() {
+    python3 - <<'EOF' | sort -u > "$WORK/owned"
+import glob
+import os
+import subprocess
+import sys
+
+paths = set()
+for name in glob.glob("/var/lib/dpkg/info/*.list"):
+    with open(name, encoding="utf-8", errors="surrogateescape") as listing:
+        paths.update(line.rstrip("\n") for line in listing)
+# Files moved aside by dpkg-divert: "diversion of X to Y by pkg".
+diversions = subprocess.run(["dpkg-divert", "--list"], capture_output=True, text=True).stdout
+for line in diversions.splitlines():
+    fields = line.split()
+    if len(fields) >= 5 and fields[0] == "diversion":
+        paths.add(fields[4])
+
+resolved = {}
+out = sys.stdout.buffer
+for path in paths:
+    directory, base = os.path.split(path)
+    if directory not in resolved:
+        resolved[directory] = os.path.realpath(directory)
+    for candidate in (path, os.path.join(resolved[directory], base)):
+        out.write(candidate.encode("utf-8", "surrogateescape") + b"\n")
+EOF
+}
+
+is_owned() {
+    grep -qxF -- "$1" "$WORK/owned"
+}
+
+allowlisted() {
+    local pattern
+    for pattern in "${LIB_ALLOWLIST[@]}"; do
+        # shellcheck disable=SC2053  # the pattern is a glob on purpose
+        [[ $1 == $pattern ]] && return 0
+    done
+    return 1
+}
+
+describe() {
+    stat -c '%n (mode %a, owner %U:%G, %s bytes, modified %y)' -- "$1" 2>/dev/null | sed -E 's/\.[0-9]+ [+-][0-9]{4}\)$/)/'
+}
+
+check_libraries() {
+    local dirs=() dir path
+    for dir in "${LIB_DIRS[@]}"; do
+        [ -d "$dir" ] && dirs+=("$dir")
+    done
+    [ ${#dirs[@]} -gt 0 ] || return
+
+    if dpkg_running; then
+        echo "integrity-check: dpkg is running, library check skipped this time"
+        return
+    fi
+    build_owned_list
+
+    # setuid/setgid: never legitimate on a library, and allowed elsewhere in
+    # these directories only for helpers installed by a package.
+    while IFS= read -r -d '' path; do
+        if [[ $path =~ \.so(\.|$) ]]; then
+            finding "setuid/setgid shared library: $(describe "$path")"
+        elif ! is_owned "$path" && ! allowlisted "$path"; then
+            finding "setuid/setgid file not installed by any package: $(describe "$path")"
+        fi
+    done < <(find "${dirs[@]}" -xdev -type f -perm /6000 -print0 2>/dev/null)
+
+    # Files whose owner or group does not exist.
+    while IFS= read -r -d '' path; do
+        finding "file with no existing owner or group: $(describe "$path")"
+    done < <(find "${dirs[@]}" -xdev \( -nouser -o -nogroup \) -print0 2>/dev/null)
+
+    # Shared objects: the real file behind every name (symlinks followed) must
+    # come from a package. Ebury 1.8.3 adds its own file next to the packaged
+    # libkeyutils and points the libkeyutils.so.1 symlink to it: dpkg --verify
+    # sees nothing, because the packaged files are untouched.
+    find "${dirs[@]}" -xdev \( -type f -o -type l \) \( -name '*.so' -o -name '*.so.*' \) \
+        ! -name '*.dpkg-*' -print0 2>/dev/null \
+        | xargs -0 -r readlink -e 2>/dev/null | sort -u > "$WORK/libs"
+    while IFS= read -r path; do
+        allowlisted "$path" && continue
+        finding "shared object not installed by any package: $(describe "$path")"
+    done < <(comm -23 "$WORK/libs" "$WORK/owned")
+}
+
+# ------------------------------------------------------------------- preload
+check_preload() {
+    local content
+    if [ -s /etc/ld.so.preload ]; then
+        content=$(grep -vE '^[[:space:]]*(#|$)' /etc/ld.so.preload | head -n 5 | tr '\n' ' ')
+        if [ -n "$content" ]; then
+            finding "/etc/ld.so.preload loads libraries into every process: ${content}"
+        fi
+    fi
+    if grep -qsE '^[[:space:]]*(export[[:space:]]+)?LD_PRELOAD=' /etc/environment /etc/environment.d/*.conf; then
+        finding "LD_PRELOAD is set system-wide in /etc/environment or /etc/environment.d."
+    fi
+}
+
+# ------------------------------------------------------------- Ebury sockets
+# Connecting to the socket finds it even if a rootkit hides it from
+# /proc/net/unix (method from ESET's detect_ebury.sh).
+check_ebury_sockets() {
+    local name
+    while IFS= read -r name; do
+        [ -n "$name" ] && finding "Ebury abstract UNIX socket found: @${name}"
+    done < <(python3 - "${EBURY_SOCKETS[@]}" <<'EOF'
+import socket
+import sys
+
+for name in sys.argv[1:]:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(b"\0" + name.encode())
+        print(name)
+    except OSError:
+        pass
+    finally:
+        s.close()
+EOF
+)
+    for name in "${EBURY_SOCKETS[@]}"; do
+        if grep -qF " @${name}" /proc/net/unix; then
+            finding "Ebury abstract UNIX socket listed in /proc/net/unix: @${name}"
+        fi
+    done
+}
+
+# --------------------------------------------------------------------- admins
+# Only the admin user may become root. A member added to sudo, or a rule in
+# /etc/sudoers.d for someone else, is what an attacker in the everyday user
+# would want once they got root once.
+is_allowed_admin() {
+    local allowed
+    for allowed in "${ALLOWED_ADMINS[@]}"; do
+        [ "$1" = "$allowed" ] && return 0
+    done
+    return 1
+}
+
+check_admins() {
+    local group members user
+    for group in "${ADMIN_GROUPS[@]}"; do
+        members=$(getent group "$group" | cut -d: -f4 | tr ',' ' ')
+        for user in $members; do
+            is_allowed_admin "$user" || finding "user ${user} is in the ${group} group (only ${ALLOWED_ADMINS[*]} may be)."
+        done
+    done
+    # Every account with a login shell: sudo must grant it nothing, unless it
+    # is an allowed admin.
+    while IFS=: read -r user _ uid _ _ _ shell; do
+        [ "$uid" -ge 1000 ] || continue
+        case "$shell" in */nologin|*/false) continue ;; esac
+        is_allowed_admin "$user" && continue
+        if sudo -n -l -U "$user" 2>/dev/null | grep -q 'may run the following commands'; then
+            finding "sudo grants commands to ${user}: $(sudo -n -l -U "$user" 2>/dev/null | sed -n '/may run/,$p' | tail -n +2 | tr -s ' ' | head -n 3 | tr '\n' ' ')"
+        fi
+    done < <(getent passwd)
+}
+
+check_ntp
+check_no_sshd
+check_libraries
+check_preload
+check_ebury_sockets
+check_admins
+
+# ----------------------------------------------------------------- reporting
+mkdir -p "$(dirname "$STATE_FILE")"
+read -r previous_digest previous_time 2>/dev/null < "$STATE_FILE" || { previous_digest=none; previous_time=0; }
+now=$(date +%s)
+
+if [ ${#FINDINGS[@]} -eq 0 ]; then
+    echo "integrity-check: nothing found"
+    if [ "$previous_digest" != "none" ]; then
+        if /usr/local/sbin/notify-telegram "✅ INTEGRITY CHECK: ALL CLEAR
+
+${LABEL}: ${HOST}
+The previous findings are gone."; then
+            echo "none $now" > "$STATE_FILE"
+        fi
+    fi
+    exit 0
+fi
+
+report=$(printf '%s\n' "${FINDINGS[@]}" | sort -u)
+printf 'integrity-check: %s\n' "${FINDINGS[@]}"
+digest=$(sha256sum <<< "$report" | cut -c1-16)
+count=$(wc -l <<< "$report")
+
+if [ "$digest" != "$previous_digest" ] || [ $(( now - previous_time )) -ge "$RENOTIFY_SECONDS" ]; then
+    title="🚨 INTEGRITY CHECK: ${count} FINDING(S)"
+    [ "$digest" = "$previous_digest" ] && title="🚨 INTEGRITY CHECK: STILL ${count} FINDING(S)"
+    # Save the state only if the notification went out, so a failed send is
+    # retried at the next run.
+    if /usr/local/sbin/notify-telegram "${title}
+
+${LABEL}: ${HOST}
+
+$(head -n 30 <<< "$report" | sed 's/^/• /')
+
+Details: journalctl -u integrity-check.service
+If a library, an SSH server or an admin appeared without a reason, treat the laptop as compromised (maintenance guide, \"Integrity check alert\")."; then
+        echo "$digest $now" > "$STATE_FILE"
+    fi
+fi
+exit 1
+{% endraw %}

@@ -9,15 +9,20 @@ Contents:
 1. [How a run works](#1-how-a-run-works)
 2. [ansible.cfg](#2-ansiblecfg)
 3. [Inventory and variables](#3-inventory-and-variables)
-4. [Role: base](#4-role-base)
-5. [Role: users](#5-role-users)
-6. [Role: privacy](#6-role-privacy)
-7. [Role: hardening](#7-role-hardening)
-8. [Role: claude_code](#8-role-claude_code)
-9. [scripts/bootstrap.sh](#9-scriptsbootstrapsh)
-10. [Files the playbook creates on the laptop](#10-files-the-playbook-creates-on-the-laptop)
-11. [Known limits and points to review](#11-known-limits-and-points-to-review)
-12. [How it was tested](#12-how-it-was-tested)
+4. [Role: notify](#4-role-notify)
+5. [Role: base](#5-role-base)
+6. [Role: users](#6-role-users)
+7. [Role: privacy](#7-role-privacy)
+8. [Role: hardening](#8-role-hardening)
+9. [Role: claude_code](#9-role-claude_code)
+10. [Role: clamav](#10-role-clamav)
+11. [Role: monitoring](#11-role-monitoring)
+12. [Role: integrity](#12-role-integrity)
+13. [Role: yara](#13-role-yara)
+14. [Scripts and the pre-commit hook](#14-scripts-and-the-pre-commit-hook)
+15. [Files the playbook creates on the laptop](#15-files-the-playbook-creates-on-the-laptop)
+16. [Known limits and points to review](#16-known-limits-and-points-to-review)
+17. [How it was tested](#17-how-it-was-tested)
 
 ---
 
@@ -30,11 +35,13 @@ There is a single playbook, `site.yml`, with a single play that targets the `lap
 1. **Fact gathering** (`gather_facts: true`). Ansible collects the distribution, the release and the rest into `ansible_facts`.
 2. **Pre-task "Check that the target runs Zorin OS 18 (Ubuntu 24.04 base)"**. The play stops on anything else: the package names, the AppArmor profile and the APT origins are Zorin's and Ubuntu 24.04's. Ansible reports Zorin as a distribution whose name contains "Zorin" and whose release is `noble`.
 3. **Pre-task "Check that the playbook runs as the admin user"**. It compares `$USER` with `laptop_admin_user`. The playbook needs sudo, and only `v-admin` has it; the check gives a clear message instead of a sudo error, and reminds that the admin works in its own session. It is a guard against mistakes, not a security boundary (sudo is the boundary).
-4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`.
+4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`, then the detection and monitoring roles `clamav`, `monitoring`, `integrity`, `yara`. `notify` is not in the list: it is a dependency of `base`, `clamav`, `monitoring`, `integrity` and `yara` (their `meta/main.yml`), so Ansible runs it once, before `base`.
 
 The order matters:
 
-- `base` comes first: it refreshes the package lists that the other roles use.
+- `notify` comes first: every other role that sends messages needs `notify-telegram`.
+- `base` comes next: it refreshes the package lists that the other roles use.
+- `clamav` comes before `yara`: YARA leaves out ClamAV's quarantine, whose path it reads from `clamav_quarantine_dir`.
 - `users` comes before `claude_code`, which looks for the home of the everyday user.
 - `hardening` and `claude_code` both write to `/etc/sysctl.d`; their files have different numbers (90 and 60) and do not overlap.
 
@@ -49,6 +56,12 @@ Both pre-tasks carry the `always` tag, so they also run when you select other ta
 | `privacy` | privacy |
 | `hardening`, `security` | hardening |
 | `claude-code`, `security` | claude_code |
+| `clamav`, `detection` | clamav (+ notify) |
+| `monitoring` | monitoring (+ notify) |
+| `integrity`, `detection` | integrity (+ notify) |
+| `yara`, `detection` | yara (+ notify) |
+
+`--tags base` also runs `notify`, the way to rewrite the Telegram credentials or the push calls alone.
 
 There are no `never` tags yet: every role is part of a full run.
 
@@ -57,10 +70,11 @@ There are no `never` tags yet: every role is part of a full run.
 From lowest to highest priority, as Ansible applies them:
 
 1. `roles/<role>/defaults/main.yml`: every variable a role reads, with a comment on what it does.
-2. `inventory/group_vars/laptops/main.yml`: the site settings, today only the two user names.
-3. `-e` on the command line, for a one-off test.
+2. `inventory/group_vars/laptops/main.yml`: the site settings (the two users, Uptime Kuma's name and address) and the variables that read the vault.
+3. `inventory/group_vars/laptops/vault.yml`: the secrets, encrypted with Ansible Vault (`--ask-vault-pass`).
+4. `-e` on the command line, for a one-off test.
 
-There is no `vault.yml` yet: no role needs a secret. The password of `v` is set by hand, Claude Code's login is interactive, and the GitHub credentials stay in the browser and in `v`. When a role needs a secret, it gets a vault and the pre-commit hook of ansible-prod-srv.
+The vault holds only what the notifications need: the Telegram bot token and chat ID (the server's, same bot and chat) and the Uptime Kuma push tokens. It is **never committed**, not even encrypted: this repository is public, and `vault.yml` is in `.gitignore`. It lives in the clone of `v-admin`, with a copy on the emergency secrets key; the pre-commit hook refuses it unencrypted in any case. The password of `v` is set by hand, Claude Code's login is interactive, and the GitHub credentials stay in the browser and in `v`.
 
 ### Check mode
 
@@ -68,7 +82,8 @@ There is no `vault.yml` yet: no role needs a secret. The password of `v` is set 
 
 - the tasks that only **read** (the groups of a user, the fingerprint of the key, `sudo -l`) run anyway (`check_mode: false`), so the checks still check;
 - the Claude Code download and verification block is skipped: nothing is downloaded in check mode, so there is nothing to verify;
-- on a first run, before `v` exists, the tasks on its home are skipped.
+- on a first run, before `v` exists, the tasks on its home are skipped;
+- the waits for ClamAV's signature database and daemon are skipped: nothing was installed, so there is nothing to wait for.
 
 ## 2. ansible.cfg
 
@@ -92,8 +107,51 @@ One host, `notebook`, with `ansible_connection=local`: the playbook runs on the 
 | --- | --- | --- |
 | `laptop_admin_user` | `v-admin` | Created by the installer, in sudo. Runs the playbooks, holds SSH to production |
 | `laptop_user` | `v` | Everyday user, no supplementary group. Claude Code runs only here |
+| `telegram_bot_token`, `telegram_chat_id` | from the vault | The server's bot and chat |
+| `notify_push_tokens` | from the vault | Job name → Uptime Kuma push token |
+| `notify_push_host`, `notify_push_address` | `health.greyroom.net`, `10.123.12.11` | Uptime Kuma's name and the services address of prod-srv-01 |
 
-## 4. Role: base
+## 4. Role: notify
+
+Purpose: one way to send a Telegram message, and one way to tell Uptime Kuma that a job ended. Ported from ansible-prod-srv; the differences are the label in the messages and the short timeout of the push calls.
+
+**Check the Telegram settings**
+With `notify_telegram_enabled` true (the default), the token and the chat ID must not be empty: the play stops with the vault variables to define, instead of installing a helper that cannot send anything.
+
+**Create the configuration directory** / **Write the notification credentials**
+`/etc/homelab/notify.env`, root only (directory 0700, file 0600), with `NOTIFY_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. `no_log` keeps the token out of the output, also with `--diff`.
+
+**Install the notification helper**
+`/usr/local/sbin/notify-telegram "message"` (or the message on stdin). It reads the environment file, cuts the message to 4000 characters (Telegram's limit is 4096), sends it as plain text (no `parse_mode`, so file names with `_` cannot break it) and passes the URL with the token to curl on stdin (`-K -`), so it never appears in the process list. Exit codes: 0 sent or notifications disabled, 1 Telegram refused it, 2 not configured.
+
+The bot is the server's: one bot, one chat, and every message carries `notify_host_label` (`💻 Laptop: <hostname>`) to tell them apart. If the laptop is lost, the token must be rotated for the server too (maintenance guide, "Rotate the Telegram token").
+
+**Check the push monitor settings** / **Write the push monitor tokens** / **Install the push helper**
+Every key of `notify_push_tokens` must be a job of `notify_push_units`. The tokens go to `/etc/homelab/push.env` (root, 0600), with the host, the address and the timeout. `/usr/local/sbin/notify-push <job>` calls `https://<host>/api/push/<token>?status=up|down&msg=...`:
+
+- `up` when systemd's `SERVICE_RESULT` is `success`, otherwise `down` with the result and exit status;
+- `--resolve` connects to `notify_push_address` without a DNS query, so other networks never see a query for the name;
+- away from home the connection fails within `notify_push_timeout` (8 s to connect, 16 s in all), and the failure is only logged ("normal away from home"). Another host that happened to have that address on a foreign network would not receive the token: it would have to present the greyroom.net certificate first;
+- it always exits 0: a push problem never fails the job.
+
+**Create the drop-in directories of the jobs** / **Call the push monitor at the end of each job** / **Remove the call from the jobs without a token**
+For each job with a token, `/etc/systemd/system/<unit>.d/90-push.conf` adds `ExecStopPost=/usr/local/sbin/notify-push <job>`. `ExecStopPost` runs when the job ends, whatever its result, with `SERVICE_RESULT` set; the `90-` prefix puts it after the unattended-upgrades report (`50-telegram.conf`), so the call says the whole job ended. A job without a token gets no drop-in, and an old one is removed. Handler: **Reload systemd for the push calls**.
+
+| Job | Unit |
+| --- | --- |
+| `unattended_upgrades` | `apt-daily-upgrade.service` |
+| `clamav` | `clamav-scan.service` |
+| `yara` | `yara-scan.service` |
+| `integrity` | `integrity-check.service` |
+| `disk_space` | `disk-space-check.service` |
+
+### Why a 7-day heartbeat
+
+On the server each monitor turns red when its job has not reported for 25 hours. On a laptop that would be red every weekend: the laptop is off, or away from home, where Uptime Kuma (on the services VLAN, no WireGuard) cannot be reached. With 7 days a monitor answers one question: "has this job not run, at home, for a week?". Failures do not wait for Uptime Kuma: each job sends its own Telegram message, from anywhere.
+
+---
+
+## 5. Role: base
 
 Purpose: the common foundation, meaning packages, automatic updates and logs.
 
@@ -123,13 +181,21 @@ Check: `sudo unattended-upgrade --dry-run -d 2>&1 | grep -i 'allowed origins'`.
 **Let needrestart restart services after upgrades**
 `$nrconf{restart} = 'a'` in `/etc/needrestart/conf.d/50-auto.conf`. The interactive default does nothing in an unattended upgrade, so services would keep running old, vulnerable libraries until a reboot. needrestart never restarts the display manager (its default override list), so the desktop session stays up; the kernel is updated only by a reboot.
 
+**Install the unattended-upgrades report** / **Create the drop-in directories of the apt jobs** / **Report after each apt job**
+`/usr/local/sbin/unattended-upgrades-report`, called by systemd through `ExecStopPost=` drop-ins (`/etc/systemd/system/apt-daily{,-upgrade}.service.d/50-telegram.conf`). Ported from ansible-prod-srv without the rootless Docker part. Handler: **Reload systemd**.
+
+- After `apt-daily-upgrade.service` (`upgrade`): one Telegram message per unattended-upgrades run. It reads the last run of `/var/log/unattended-upgrades/unattended-upgrades.log` (from its last "Starting unattended upgrades script" line) and reports "N PACKAGE(S) UPGRADED" with the list, "NOTHING TO INSTALL", or "ERRORS" with the `ERROR` lines; kept-back and auto-removed packages are added. If the service itself failed, "JOB FAILED" with the last lines of its journal. Then whether a reboot is needed: `needrestart -b -k` (a newer kernel installed) or `/run/reboot-required`. unattended-upgrades runs at most once a day: if the log has no new run (`/var/lib/unattended-upgrades-report/last-run` keeps the last one reported), nothing is sent.
+- After `apt-daily.service` (`update`): a message only if the package lists could not be downloaded. On a laptop that is usually no network at that moment; the next run fixes it.
+
+Ubuntu's own schedule is kept (lists at 06:00 and 18:00, upgrade at 06:00, with random delays and `Persistent=true`), unlike the server's fixed night times: a laptop is rarely on at night, and a run missed while it was off happens at the next boot.
+
 **Create the journald drop-in directory** / **Cap the persistent journal**
 `Storage=persistent` keeps the logs across reboots (useful after a crash or a freeze), `SystemMaxUse=500M` keeps them from filling the disk. The `copy` module does not create parent directories, hence the first task.
 Check: `journalctl --disk-usage`.
 
-Handler: **Restart journald** when its drop-in changes.
+Handlers: **Restart journald** when its drop-in changes, **Reload systemd** when the report drop-ins change.
 
-## 5. Role: users
+## 6. Role: users
 
 Purpose: two users with separate roles, so that nothing used every day, Claude Code above all, shares an account with a way to root.
 
@@ -164,7 +230,7 @@ A password typed in a terminal of `v` can be caught by anything that runs as `v`
 
 The YubiKey adds a practical reason: udev gives the FIDO2 device to the user of the **active session**. Through `su` in a terminal of `v`, `v-admin` would not see it, and SSH with the security key would fail.
 
-## 6. Role: privacy
+## 7. Role: privacy
 
 Purpose: nothing on the laptop reports to Zorin or Canonical by itself.
 
@@ -196,7 +262,7 @@ Handler: **Reload NetworkManager**, which re-reads `conf.d` without dropping the
 
 Not covered yet: the GNOME privacy settings (location services, problem reporting, usage statistics, file history). They are per-user dconf settings and belong to the `desktop` role, to come.
 
-## 7. Role: hardening
+## 8. Role: hardening
 
 Purpose: nothing listens for the network, and the kernel exposes as little as possible.
 
@@ -248,7 +314,7 @@ Check: `sudo nft list table inet laptop_filter`.
 
 Check: `sysctl kernel.kptr_restrict kernel.unprivileged_bpf_disabled net.ipv4.conf.all.accept_redirects`.
 
-## 8. Role: claude_code
+## 9. Role: claude_code
 
 Purpose: Claude Code runs only as `v`, from a project folder, at a version chosen in this repository, inside a sandbox that fails closed, with rules that nothing in user space can change.
 
@@ -343,7 +409,96 @@ Where the barriers really are. The `Bash(...)` deny rules match command prefixes
 **Find the home of the everyday user** / **Look for a user-level install** / **Refuse a user-level install**
 `~/.local/bin` comes before `/usr/local/bin` on the PATH. A `~/.local/bin/claude` left by the official installer would run instead of the wrapper: unpinned, updating itself, with no checks. The play fails with the commands to remove it. `fail_key: false` because, in a first `--check` run, `v` does not exist yet.
 
-## 9. scripts/bootstrap.sh
+## 10. Role: clamav
+
+Purpose: a daily ClamAV scan of where files from outside arrive, with a Telegram report. Ported from ansible-prod-srv, with a desktop's paths and the file list built by `find`.
+
+**Check that the quarantine is outside the scanned paths**
+A quarantine inside a scanned path would be found again at every scan. `/root/clamav-quarantine` is outside every default path.
+
+**Install ClamAV**
+`clamav` (the scanners), `clamav-daemon` (clamd, which keeps the signatures in memory, about 1–1.5 GB, so each scan starts at once), `clamav-freshclam` (the signature updater, several times a day). Where they come from (main or universe) is checked on the VM (`verify.md` section 9).
+
+**Create the quarantine directory (root only)**: mode 0700.
+
+**Start the signature updater** / **Wait for the signature database (main and daily)** / **Start the ClamAV daemon** / **Check that the ClamAV daemon is running**
+freshclam downloads a few hundred MB at its first start. `clamav-daemon` has a start condition on both `main` and `daily`: if one is missing, systemd silently skips the start. The role waits up to 10 minutes for both, then starts clamd and waits for it to be active (loading the signatures takes about a minute). Both waits are skipped in check mode.
+
+**Install the scan script** / **Install the scan service and timer** / **Enable the scheduled scan**
+`/usr/local/sbin/clamav-scan`, run by `clamav-scan.service` from `clamav-scan.timer` at 12:30 (`clamav_scan_on_calendar`), when the laptop is usually on; `Persistent=true` runs a missed scan at the next boot. `Nice=19` and `IOSchedulingClass=idle`: the scan yields to everything else. `SuccessExitStatus=1`: "threats found" is reported, not a failure of the unit.
+
+The script:
+
+1. skips the configured paths that do not exist;
+2. builds the file list with `find`: the paths in `clamav_scan_paths` (`/home`, `/tmp`, `/var/tmp`, `/opt`), without entering other filesystems (`-xdev`: USB sticks, network shares), pruning `clamav_exclude_paths` (shell patterns: the homes' caches, Flatpak runtimes, trash, and the YARA rules vendored in the repository clones, which contain malware strings on purpose), files up to 100 MB;
+3. scans the list with `clamdscan --multiscan --fdpass --file-list`. `--fdpass`: clamdscan, as root, opens each file and hands it to clamd, which runs as the `clamav` user and could not open the homes (mode 0700) by itself. If clamd is down, `clamscan` (slower) instead;
+4. moves infected files to the quarantine (`clamav_action_on_detect`: `quarantine`, or `notify_only`, `remove`);
+5. sends "MALWARE DETECTED" with up to 20 files, "SCAN ERROR", or "SCAN CLEAN" with the summary (`clamav_notify_clean`: the daily clean message shows that the scans and the notifications work).
+
+Logs in `/var/log/clamav/scan_*.log`, kept 30 days.
+
+Not done: on-access scanning (`clamonacc`): heavy, and one more daemon to tune.
+
+## 11. Role: monitoring
+
+Purpose: warn before the disk fails or fills. Ported from ansible-prod-srv.
+
+**Install smartmontools** / **Configure smartd** / **Install the smartd Telegram hook** / **Enable smartd**
+Skipped on a virtual machine (`virtualization_role == guest`): there is no physical disk. `/etc/smartd.conf` monitors every disk (`DEVICESCAN`): health, attributes and error logs, automatic offline tests, a short self-test daily at 12:00 and a long one on Saturdays at 13:00 (hours when the laptop is usually on; smartd runs a test only if it is running at that hour), temperature changes of 4 °C with info at 60 °C and alert at 70 °C (laptop NVMe drives run warmer than the server's), and `-n standby,q` (a sleeping disk is not woken up). On a problem smartd runs `smartd-runner`, which runs every script in `/etc/smartmontools/run.d/`: `20telegram` sends "SMART WARNING" with the device and smartd's message. Handler: **Restart smartd**.
+
+**Install the disk space check** / **Install the disk space service and timer** / **Enable the disk space check**
+Every 15 minutes, `/usr/local/sbin/disk-space-check` compares the usage of `/` and `/boot` with `disk_space_warn_percent` (85%). It keeps a state per mount point in `/var/lib/disk-space-check`, so it sends one "DISK SPACE LOW" when the threshold is crossed and one "BACK TO NORMAL" when usage goes below it, not a message every 15 minutes. The state is saved only if the message went out, so a send that failed (no network) is retried at the next run. `/boot` is a separate small partition with LUKS: old kernels can fill it.
+
+## 12. Role: integrity
+
+Purpose: every 15 minutes, look for the traces a rootkit or an OpenSSH backdoor leaves, and for changes that open a way to root. Ported from ansible-prod-srv: the sshd logging and `ssh.service` checks are replaced by "no SSH server", and the admin check is new.
+
+**Install the integrity check** / **Install the integrity check service and timer** / **Enable the integrity check**
+`/usr/local/sbin/integrity-check`, run by `integrity-check.service` from its timer (`*:0/15`, `Persistent=true`). The service sets `H=1 I=1 LD_PRELOAD=: LD_DEBUG=:`: from ESET's `detect_ebury.sh`, these variables defuse Ebury's userland rootkit, so it does not hide its files from the check. `SuccessExitStatus=1`: findings are reported, not a failure.
+
+The checks:
+
+| Check | Finding |
+| --- | --- |
+| NTP | `timedatectl` NTP off, `systemd-timesyncd` not running, or the clock not synchronized 30 minutes after boot. A wrong clock makes the journal useless as evidence and breaks TLS |
+| SSH server | `/usr/sbin/sshd` exists, or something listens on TCP port 22: the laptop is a client, and an SSH server is a way in |
+| Libraries | In `/usr/lib`, `/usr/lib64`, `/usr/libexec`, `/usr/local/lib`: setuid/setgid shared objects; setuid/setgid files no package installed; files whose owner or group does not exist; shared objects (following symlinks) that no package installed. Ebury 1.8.3 adds its own library next to the packaged `libkeyutils` and points the symlink to it: `dpkg --verify` sees nothing, this does. Skipped while dpkg holds its lock (files have temporary names during an upgrade) |
+| Preload | `/etc/ld.so.preload` with content, or `LD_PRELOAD` set in `/etc/environment` |
+| Ebury sockets | One of Ebury's abstract Unix sockets, found by connecting to it (a rootkit can hide it from `/proc/net/unix`) |
+| Admins | A member of `sudo` or `admin` other than `v-admin`; sudo granting commands to any other account with a login shell. Once root, an attacker would want a way back that does not need the admin password |
+
+Reporting: findings go to the journal at every run, and to Telegram when they change, or every 24 hours while they stay the same ("STILL N FINDING(S)"). When they disappear, "ALL CLEAR". The state is in `/var/lib/integrity-check/state`, saved only when the message went out.
+
+On a desktop some libraries may come from outside the packages legitimately (a driver installed by hand): add their shell patterns to `integrity_lib_allowlist` only after looking at them.
+
+## 13. Role: yara
+
+Purpose: a daily scan with YARA rules for Linux malware (rootkits, miners, botnets, C2 implants, webshells, Ebury and other OpenSSH backdoors) over files and suspicious processes. Ported from ansible-prod-srv with a desktop's paths.
+
+**Install YARA** / **Create the rule and log directories** / **Copy the YARA rules** / **List the rules on the laptop** / **Remove rules no longer in the repository**
+The rules are vendored in `roles/yara/files/rules` (the same as the server: ESET's `ebury.yar` and `sshdoor.yar`, 273 Linux and cross-platform rules from Elastic), at commits pinned in `scripts/update-yara-rules.sh` and listed in `SOURCES.md`. They are copied to `/etc/yara/rules`; a rule removed from the repository is removed from the laptop too (the list of wanted files comes from `fileglob` on the two source directories). The laptop never downloads rules by itself.
+
+**Install the scan script** / **Check that the rules compile**
+`/usr/local/sbin/yara-scan --compile-only` compiles every rule after any change: a rule that does not compile would stop every scan, so the run fails here instead.
+
+**Install the scan service and timer** / **Enable the scheduled scan**
+Daily at 13:30 (`yara_scan_on_calendar`), after ClamAV's, `Persistent=true`, idle priority, the same anti-rootkit environment as the integrity check.
+
+The script:
+
+1. compiles the rules into `/run` (never scanned: compiled rules match themselves), one namespace per source;
+2. builds the file list with `find`: `yara_scan_paths` (binaries, libraries, `/usr/local`, `/opt`, `/etc`, `/root`, `/home`, temporary directories, cron spools, `/dev/shm`), no other filesystems, pruning `yara_exclude_paths` (the rules, ClamAV's quarantine, the homes' caches, trash and Flatpak runtimes, the YARA rules vendored in the repository clones), files up to 64 MB;
+3. scans them with 2 threads;
+4. scans the memory of the processes named in `yara_process_names` (empty on the laptop: there is no sshd) and of every process running from `/tmp`, `/var/tmp`, `/dev/shm`, memfd or a deleted file: what droppers and miners look like. ESET's SSHDoor rules are left out of the memory scan (they match a clean sshd in memory);
+5. reports matches on Telegram (rule and file or process, up to 20). Nothing is moved or deleted. No message when clean (`yara_notify_clean: false`): ClamAV's daily message already shows that the notifications work.
+
+Logs in `/var/log/yara/scan_*.log`, kept 30 days.
+
+---
+
+## 14. Scripts and the pre-commit hook
+
+### scripts/bootstrap.sh
 
 Run once by `v-admin` on a fresh install, before the first playbook run:
 
@@ -354,7 +509,15 @@ Run once by `v-admin` on a fresh install, before the first playbook run:
 
 Why not Ubuntu's `ansible`: it is in universe and older (2.16) than the version ansible-prod-srv is written and tested with. PyPI is the Ansible project's own channel; the version is pinned. The same virtual environment runs both playbooks.
 
-## 10. Files the playbook creates on the laptop
+### scripts/update-yara-rules.sh
+
+Fetches the YARA rules from ESET's and Elastic's repositories at the pinned commits (a shallow, blob-less fetch of one commit and a sparse checkout of the needed files), rewrites `roles/yara/files/rules` and `SOURCES.md`. Run it as `v`, read the diff, commit. The script and the pins are the same as in ansible-prod-srv: refresh both repositories together.
+
+### .githooks/pre-commit
+
+Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT;`. Here `vault.yml` is also in `.gitignore`; the hook covers a forced `git add -f`. Enable it once per clone: `git config core.hooksPath .githooks`.
+
+## 15. Files the playbook creates on the laptop
 
 | File | Role | Purpose |
 | --- | --- | --- |
@@ -373,10 +536,21 @@ Why not Ubuntu's `ansible`: it is in universe and older (2.16) than the version 
 | `/opt/claude-code/<version>/{manifest.json,manifest.json.sig,claude}` | claude_code | Signed manifest and the binary |
 | `/usr/local/bin/claude` | claude_code | The wrapper |
 | `/etc/claude-code/managed-settings.json` | claude_code | Managed settings |
+| `/etc/homelab/notify.env`, `/etc/homelab/push.env` | notify | Telegram credentials, Uptime Kuma tokens (root, 0600) |
+| `/usr/local/sbin/notify-telegram`, `/usr/local/sbin/notify-push` | notify | The two helpers |
+| `/etc/systemd/system/<job>.service.d/90-push.conf` | notify | Push call at the end of each job |
+| `/usr/local/sbin/unattended-upgrades-report` | base | Telegram report of the apt jobs |
+| `/etc/systemd/system/apt-daily{,-upgrade}.service.d/50-telegram.conf` | base | Runs the report |
+| `/usr/local/sbin/clamav-scan`, `/etc/systemd/system/clamav-scan.{service,timer}` | clamav | Daily scan |
+| `/root/clamav-quarantine/` | clamav | Quarantine (root, 0700) |
+| `/etc/smartd.conf`, `/etc/smartmontools/run.d/20telegram` | monitoring | SMART monitoring and its Telegram hook |
+| `/usr/local/sbin/disk-space-check`, `/etc/systemd/system/disk-space-check.{service,timer}` | monitoring | Disk space check |
+| `/usr/local/sbin/integrity-check`, `/etc/systemd/system/integrity-check.{service,timer}` | integrity | Integrity check |
+| `/etc/yara/rules/`, `/usr/local/sbin/yara-scan`, `/etc/systemd/system/yara-scan.{service,timer}` | yara | Rules and daily scan |
 
-Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service` (enabled).
+Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service`, `clamav-daemon`, `clamav-freshclam` and `smartmontools` (enabled). State and logs: `/var/lib/{unattended-upgrades-report,disk-space-check,integrity-check}/`, `/var/log/{clamav,yara}/`.
 
-## 11. Known limits and points to review
+## 16. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
 - **Built-in tools outside the sandbox.** WebFetch and web search run in Claude Code's own process, not in bubblewrap: the domain allowlist does not limit them. They are governed by the permission prompts, which come to you.
@@ -384,9 +558,13 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **Captive portals** need an `http://` page opened by hand (connectivity check off).
 - **Not configured yet**: the GNOME privacy settings and screen lock (`desktop`), Flatpak apps and remotes (`apps`; the `zorinos` Flatpak remote is still there), the YubiKey and SSH to production for `v-admin` (`security_keys`).
 - **Claude Code updates** are manual: no Renovate for `claude_code_version` yet.
-- **To confirm on the VM** (written, not yet run): how Ansible names Zorin in its facts; whether purging the reporting packages removes a Zorin metapackage; that the explicit origins match in `unattended-upgrade --dry-run`; that the binary works from `/opt` with updates disabled; every check in `verify.md` section 6.
+- **Detection packages and universe.** ClamAV and YARA parse untrusted files, YARA as root. On Debian (the server) they are in main; on Ubuntu, check on the VM where they come from (`verify.md` sections 9 and 12). If they are in universe, their security fixes depend on the community: weigh it, and consider sandboxing the scan units with systemd options.
+- **Shared Telegram bot.** The laptop holds the server's bot token (root only). Losing the laptop means rotating it for the server and Uptime Kuma too.
+- **Monitoring is weaker than the server's.** Uptime Kuma sees the laptop only at home, and the 7-day heartbeat catches a job that stopped, not a job that failed today (Telegram does that).
+- **Scans match what you keep.** Documentation or Claude transcripts that quote malware strings can match YARA or ClamAV. The repositories' own rule files are excluded; anything else is reported, and judged by you (maintenance guide, "YARA match").
+- **To confirm on the VM** (written, not yet run): how Ansible names Zorin in its facts; whether purging the reporting packages removes a Zorin metapackage; that the explicit origins match in `unattended-upgrade --dry-run`; that the binary works from `/opt` with updates disabled; that Zorin uses `systemd-timesyncd` (the NTP check expects it); the integrity check's first findings on a desktop; every check in `verify.md`.
 
-## 12. How it was tested
+## 17. How it was tested
 
 On the development laptop (Fedora 44, ansible-core 2.20.7):
 
@@ -394,7 +572,10 @@ On the development laptop (Fedora 44, ansible-core 2.20.7):
 - the managed settings rendered from the defaults and parsed as JSON (`cleanupPeriodDays` an integer);
 - the wrapper rendered and run: it refuses `/` and the home;
 - the nftables ruleset loaded twice in a row in a throwaway network namespace (`unshare -rn`), to check the replace-only-this-table pattern;
-- the release key's fingerprint, and `gpgv` on the 2.1.311 manifest.
+- the release key's fingerprint, and `gpgv` on the 2.1.311 manifest;
+- every script template of `notify`, `base`, `clamav`, `monitoring`, `integrity` and `yara` rendered and checked with `bash -n`;
+- the `find` exclusion patterns of the scans on a sample tree (caches, trash, Flatpak cache, vendored rules pruned; downloads and app data kept);
+- the `fileglob` lookup of the YARA rules: 275 files, the same count as on disk.
 
 On the Zorin 18 test VM, before the roles were written: podman, passt and podman-compose versions and origins (why agent-box was dropped); bubblewrap's origin; the nested-namespace failure, its AppArmor cause, and the fix by unloading the profile; Flatpak still blocking nested namespaces without it; the sandbox working once the profile was gone; auto mode retrying outside the sandbox (why it is disabled).
 

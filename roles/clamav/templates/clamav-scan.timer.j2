@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Scheduled ClamAV scan
+
+[Timer]
+OnCalendar={{ clamav_scan_on_calendar }}
+# A scan missed while the laptop was off runs at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

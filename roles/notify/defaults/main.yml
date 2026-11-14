@@ -1,0 +1,42 @@
+---
+# ==============================================================================
+# Role notify: defaults. A dependency of the roles that send messages (base,
+# clamav, monitoring, integrity, yara): it runs once, before them.
+# The values come from inventory/group_vars/laptops (main.yml and the vault).
+# ==============================================================================
+
+# Telegram: the same bot and chat as the server (vault_telegram_bot_token,
+# vault_telegram_chat_id). The token lives only in notify_env_file (root, 0600).
+notify_telegram_enabled: true
+telegram_bot_token: ""
+telegram_chat_id: ""
+notify_env_file: /etc/homelab/notify.env
+
+# The first line of every message after the title says which machine sent it,
+# so the laptop's messages stand out in the chat shared with the server.
+notify_host_label: "💻 Laptop"
+
+# Uptime Kuma push monitors: at the end of each job systemd runs notify-push
+# (ExecStopPost), which tells the job's monitor "up" if the service succeeded
+# and "down" otherwise. On a laptop the monitors have a 7-day heartbeat: the
+# laptop is often off or away from home, where Uptime Kuma cannot be reached
+# (it is on the services VLAN, with no WireGuard). A failed call is logged and
+# never fails the job; failures themselves go to Telegram from the job.
+# Job name -> the token of its push URL (https://<host>/api/push/<token>).
+# A job without a token gets no call.
+notify_push_tokens: {}
+# Uptime Kuma's name, and the address to connect to instead of resolving it:
+# no DNS query for the name on other networks. Away from home the connection
+# fails at once or at the timeout, and TLS (the greyroom.net certificate)
+# keeps any other host at that address from receiving the token.
+notify_push_host: ""
+notify_push_address: ""
+notify_push_timeout: 8
+notify_push_env_file: /etc/homelab/push.env
+# Job name -> systemd unit that runs it.
+notify_push_units:
+  unattended_upgrades: apt-daily-upgrade.service
+  clamav: clamav-scan.service
+  yara: yara-scan.service
+  integrity: integrity-check.service
+  disk_space: disk-space-check.service

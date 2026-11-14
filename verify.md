@@ -1,11 +1,11 @@
 # Verification
 
-Commands to check each part on the laptop, after `ansible-playbook site.yml -K` (run as `v-admin`). Sections 1–5 as `v-admin`, section 6 as `v`.
+Commands to check each part on the laptop, after `ansible-playbook site.yml -K --ask-vault-pass` (run as `v-admin`). Sections 1–5 and 7–12 as `v-admin`, section 6 as `v`.
 
 ## 1. Playbook
 
 ```bash
-ansible-playbook site.yml -K          # a second run must report changed=0
+ansible-playbook site.yml -K --ask-vault-pass          # a second run must report changed=0
 ```
 
 ## 2. Users
@@ -91,3 +91,106 @@ In `mkdir -p ~/progetti/prova && cd ~/progetti/prova && claude`, ask Claude to r
 | `sudo true` | Refused |
 
 `/status` in Claude shows the managed settings among the sources; `/permissions` shows the deny rules; Shift+Tab must not offer auto or bypass mode.
+
+## 7. Notifications
+
+As `v-admin`:
+
+```bash
+sudo notify-telegram "Test from $(hostname)"; echo "exit code $?"
+```
+
+Exit code 0 and a message on Telegram. Code 1 means Telegram refused the request (check token and chat ID in the vault), 2 that the credentials are missing.
+
+The unattended-upgrades report, without waiting for the morning run:
+
+```bash
+sudo systemctl start apt-daily-upgrade.service
+journalctl -u apt-daily-upgrade.service -n 20 -o cat
+```
+
+A "✅ UNATTENDED-UPGRADES" message on Telegram (or none, if unattended-upgrades already ran today: it runs once a day).
+
+## 8. Uptime Kuma push calls
+
+At home, after step 7 of the README's first setup:
+
+```bash
+ls /etc/systemd/system/*.service.d/90-push.conf
+sudo systemctl start disk-space-check.service
+journalctl -u disk-space-check.service -n 5 -o cat | grep notify-push || echo "no error from notify-push"
+```
+
+The "Laptop: disk space check" monitor shows a new green beat. Away from home, the same command logs "Uptime Kuma not reachable ... normal away from home" and the job still succeeds.
+
+## 9. ClamAV
+
+```bash
+apt-cache policy clamav clamav-daemon | grep -E '^[a-z]|500'   # main or universe? (note it in the walkthrough)
+systemctl is-active clamav-daemon clamav-freshclam
+systemctl list-timers clamav-scan.timer
+```
+
+Test with the EICAR file, harmless and detected by every antivirus. The string is split in two here, so this file does not match the scanners in the clones of the repository. As `v`, then as `v-admin`:
+
+```bash
+# as v
+printf '%s%s\n' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR' '-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > ~/Scaricati/eicar.com
+# as v-admin
+sudo systemctl start clamav-scan.service
+sudo sh -c 'cat "$(ls -t /var/log/clamav/scan_*.log | head -n 1)"' | grep -E 'FOUND|Files to scan|Infected'
+```
+
+Expected: `eicar.com: Eicar-Signature FOUND`, the file moved to `/root/clamav-quarantine` and a "MALWARE DETECTED" message on Telegram. Clean up: `sudo rm -f /root/clamav-quarantine/eicar.com`.
+
+## 10. SMART and disk space
+
+On a virtual machine smartmontools is not installed (there is no physical disk to read): skip `smartctl` and test only the disk space check.
+
+```bash
+sudo smartctl -H /dev/nvme0n1
+sudo systemctl start disk-space-check.service
+systemctl list-timers disk-space-check.timer
+```
+
+To test the alert path, lower `disk_space_warn_percent` below the current usage with `-e disk_space_warn_percent=1 --tags monitoring`, start the check (a "DISK SPACE LOW" message), then run `--tags monitoring` again without `-e` and start it once more ("BACK TO NORMAL").
+
+## 11. Time and integrity check
+
+```bash
+timedatectl show --property=NTP --property=NTPSynchronized   # NTP=yes, NTPSynchronized=yes
+systemctl list-timers integrity-check.timer
+sudo integrity-check; echo "exit code $?"                    # 0 and "nothing found"
+```
+
+On a fresh install a few findings may need an allowlist entry (a library Zorin installs outside the packages): read them before adding anything to `integrity_lib_allowlist`.
+
+To test the alert path, plant a fake unpackaged library, run the check, then remove it:
+
+```bash
+sudo cp /usr/lib/x86_64-linux-gnu/libkeyutils.so.1.* /usr/lib/x86_64-linux-gnu/libtest-integrity.so.1
+sudo integrity-check     # exit code 1, "shared object not installed by any package", Telegram message
+sudo rm /usr/lib/x86_64-linux-gnu/libtest-integrity.so.1
+sudo integrity-check     # "nothing found" and "✅ INTEGRITY CHECK: ALL CLEAR" on Telegram
+```
+
+And the admin check: `sudo gpasswd -a v sudo && sudo integrity-check` reports "user v is in the sudo group"; then `sudo gpasswd -d v sudo` (or `--tags users`, which removes it as well).
+
+## 12. YARA
+
+```bash
+apt-cache policy yara | grep -E '^[a-z]|500'
+sudo yara-scan --compile-only && echo "rules OK"
+systemctl list-timers yara-scan.timer
+```
+
+Test with the EICAR file (the Elastic rules include it):
+
+```bash
+printf '%s%s\n' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR' '-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar.com
+sudo systemctl start yara-scan.service
+sudo sh -c 'cat "$(ls -t /var/log/yara/scan_*.log | head -n 1)"' | grep -v '^error scanning'
+rm -f /tmp/eicar.com
+```
+
+Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram. If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.

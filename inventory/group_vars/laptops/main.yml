@@ -11,3 +11,13 @@ laptop_admin_user: "v-admin"
 
 # Everyday user: no sudo. Browser, documents and Claude Code run here.
 laptop_user: "v"
+
+# --- Notifications ------------------------------------------------------------
+# Telegram: the same bot and chat as the server, from the vault.
+telegram_bot_token: "{{ vault_telegram_bot_token | default('') }}"
+telegram_chat_id: "{{ vault_telegram_chat_id | default('') }}"
+# Uptime Kuma push monitors (7-day heartbeat), reached on the services address
+# of prod-srv-01 when the laptop is at home.
+notify_push_tokens: "{{ vault_uptime_kuma_push_tokens | default({}) }}"
+notify_push_host: "health.greyroom.net"
+notify_push_address: "10.123.12.11"

@@ -1,0 +1,6 @@
+---
+# smartd reads /etc/smartd.conf only at start.
+- name: Restart smartd
+  ansible.builtin.systemd_service:
+    name: smartmontools
+    state: restarted

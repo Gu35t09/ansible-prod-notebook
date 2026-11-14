@@ -1,0 +1,4 @@
+---
+# notify installs notify-telegram, which the unattended-upgrades report uses.
+dependencies:
+  - role: notify

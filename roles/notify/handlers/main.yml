@@ -1,0 +1,5 @@
+---
+# systemd reads new or changed drop-ins only after a daemon-reload.
+- name: Reload systemd for the push calls
+  ansible.builtin.systemd_service:
+    daemon_reload: true

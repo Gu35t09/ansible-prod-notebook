@@ -24,4 +24,4 @@ done
 echo
 echo "Ansible ${ANSIBLE_CORE_VERSION} is in $VENV, linked in ~/.local/bin."
 echo "Open a new terminal (or log in again) if ~/.local/bin was not on the PATH yet, then:"
-echo "  ansible-playbook site.yml -K --check --diff"
+echo "  ansible-playbook site.yml -K --ask-vault-pass --check --diff"

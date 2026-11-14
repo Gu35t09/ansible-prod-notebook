@@ -2,14 +2,14 @@
 # ==============================================================================
 # Laptop: configuration
 # ==============================================================================
-# Full configuration, on the laptop itself:
-#   ansible-playbook site.yml -K
+# Full configuration, on the laptop itself, as v-admin:
+#   ansible-playbook site.yml -K --ask-vault-pass
 #
 # Single area:
-#   ansible-playbook site.yml -K --tags claude-code
+#   ansible-playbook site.yml -K --ask-vault-pass --tags claude-code
 #
 # Dry run first after any change:
-#   ansible-playbook site.yml -K --check --diff
+#   ansible-playbook site.yml -K --ask-vault-pass --check --diff
 # ==============================================================================
 
 - name: Configure the laptop
@@ -50,4 +50,13 @@
       tags: [hardening, security]
     - role: claude_code
       tags: [claude-code, security]
+    # Detection and monitoring. notify runs before base, as its dependency.
+    - role: clamav
+      tags: [clamav, detection]
+    - role: monitoring
+      tags: [monitoring]
+    - role: integrity
+      tags: [integrity, detection]
+    - role: yara
+      tags: [yara, detection]
 

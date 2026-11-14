@@ -4,3 +4,8 @@
   ansible.builtin.systemd_service:
     name: systemd-journald
     state: restarted
+
+# systemd reads new or changed drop-ins only after a daemon-reload.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

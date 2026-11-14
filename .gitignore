@@ -19,3 +19,7 @@ venv/
 .idea/
 *.swp
 *~
+
+# --- The vault: kept on the laptop of v-admin and on the emergency key, never
+# in this public repository, not even encrypted ---
+inventory/group_vars/laptops/vault.yml

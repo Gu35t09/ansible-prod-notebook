@@ -1,0 +1,4 @@
+---
+# The check reports through notify-telegram.
+dependencies:
+  - role: notify

@@ -53,6 +53,50 @@
       # Managed by Ansible (role base).
       $nrconf{restart} = 'a';
 
+# --- Telegram report of the package jobs -------------------------------------
+
+# A Telegram message after every unattended-upgrades run (installed, nothing to
+# do, errors, reboot needed), and when the package lists fail to download.
+- name: Install the unattended-upgrades report
+  ansible.builtin.template:
+    src: unattended-upgrades-report.sh.j2
+    dest: /usr/local/sbin/unattended-upgrades-report
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create the drop-in directories of the apt jobs
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - apt-daily.service
+    - apt-daily-upgrade.service
+
+# Ubuntu's schedule is kept (06:00 and 18:00 for the lists, 06:00 for the
+# upgrade, with random delays, Persistent=true): a laptop is rarely on at
+# night, and a run missed while it was off happens at the next boot.
+# ExecStopPost runs whatever the job's result, with SERVICE_RESULT set.
+- name: Report after each apt job
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.unit }}.d/50-telegram.conf"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook): manual changes will be overwritten.
+      [Service]
+      ExecStopPost=/usr/local/sbin/unattended-upgrades-report {{ item.mode }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { unit: apt-daily.service, mode: update }
+    - { unit: apt-daily-upgrade.service, mode: upgrade }
+  notify: Reload systemd
+
+# --- Journal -------------------------------------------------------------------
+
 # The copy module does not create parent directories.
 - name: Create the journald drop-in directory
   ansible.builtin.file:

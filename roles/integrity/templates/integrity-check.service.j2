@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Integrity check (NTP, SSH server, libraries, Ebury, admins) with Telegram notification
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/integrity-check
+# Exit code 1 means "findings": already reported, not a unit failure.
+SuccessExitStatus=1
+# From ESET's detect_ebury.sh: these variables defuse Ebury's userland rootkit,
+# so it does not hide its files and processes from this check.
+Environment=H=1 I=1 LD_PRELOAD=: LD_DEBUG=:
+# Low priority: it reads every library directory.
+Nice=10
+IOSchedulingClass=idle
