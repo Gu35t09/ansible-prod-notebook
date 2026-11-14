@@ -1,0 +1,21 @@
+---
+# Copy to vault.yml, fill in the values and encrypt it:
+#   cp vault.yml.example vault.yml
+#   ansible-vault encrypt vault.yml
+# vault.yml is in .gitignore (this repository is public): it stays in the
+# clone of v-admin, with a copy on the emergency secrets key. The pre-commit
+# hook in .githooks/ refuses it unencrypted anyway.
+
+# The same Telegram bot and chat as the server (ansible-prod-srv vault).
+vault_telegram_bot_token: "123456789:REPLACE_ME"
+vault_telegram_chat_id: "123456789"
+
+# Uptime Kuma push monitors, one per scheduled job of the laptop, with a
+# 7-day heartbeat (README, "Uptime Kuma"): the token is the part after
+# /api/push/ in the monitor's push URL. A job left out gets no push call.
+vault_uptime_kuma_push_tokens:
+  unattended_upgrades: "REPLACE_ME"
+  clamav: "REPLACE_ME"
+  yara: "REPLACE_ME"
+  integrity: "REPLACE_ME"
+  disk_space: "REPLACE_ME"

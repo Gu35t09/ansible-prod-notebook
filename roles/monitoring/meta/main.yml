@@ -1,0 +1,4 @@
+---
+# The SMART hook and the disk space check report through notify-telegram.
+dependencies:
+  - role: notify

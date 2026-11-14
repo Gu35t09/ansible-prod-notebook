@@ -1,0 +1,121 @@
+---
+# ==============================================================================
+# Role: base
+# The common foundation: base packages, daily unattended upgrades from Ubuntu's
+# security and update pockets (never with a reboot), a capped journal.
+# Walkthrough: docs/walkthrough.md, "Role: base".
+# ==============================================================================
+
+# git and python3-venv are needed by scripts/bootstrap.sh and by the repos;
+# needrestart restarts services still running old libraries after an upgrade;
+# fwupd brings firmware updates (offered in GNOME Software, applied by hand).
+- name: Install the base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# APT reads apt.conf.d in alphabetical order: 21 comes after the stock
+# 20auto-upgrades, so these values win whatever Zorin ships there.
+- name: Turn on the daily package list update and unattended upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/21auto-upgrades-local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Managed by Ansible (role base). Loaded after 20auto-upgrades.
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+# 52 comes after the stock 50unattended-upgrades: the origins listed here are
+# added to the stock ones, which may not match on Zorin (see defaults).
+- name: Configure what unattended-upgrades installs
+  ansible.builtin.template:
+    src: 52unattended-upgrades-local.j2
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root
+    group: root
+    mode: "0644"
+
+# needrestart's interactive default does nothing in an unattended upgrade:
+# 'a' restarts the affected services by itself. It never restarts the display
+# manager (its default override list), so the session stays up.
+- name: Let needrestart restart services after upgrades
+  ansible.builtin.copy:
+    dest: /etc/needrestart/conf.d/50-auto.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role base).
+      $nrconf{restart} = 'a';
+
+# --- Telegram report of the package jobs -------------------------------------
+
+# A Telegram message after every unattended-upgrades run (installed, nothing to
+# do, errors, reboot needed), and when the package lists fail to download.
+- name: Install the unattended-upgrades report
+  ansible.builtin.template:
+    src: unattended-upgrades-report.sh.j2
+    dest: /usr/local/sbin/unattended-upgrades-report
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create the drop-in directories of the apt jobs
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - apt-daily.service
+    - apt-daily-upgrade.service
+
+# Ubuntu's schedule is kept (06:00 and 18:00 for the lists, 06:00 for the
+# upgrade, with random delays, Persistent=true): a laptop is rarely on at
+# night, and a run missed while it was off happens at the next boot.
+# ExecStopPost runs whatever the job's result, with SERVICE_RESULT set.
+- name: Report after each apt job
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.unit }}.d/50-telegram.conf"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook): manual changes will be overwritten.
+      [Service]
+      ExecStopPost=/usr/local/sbin/unattended-upgrades-report {{ item.mode }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { unit: apt-daily.service, mode: update }
+    - { unit: apt-daily-upgrade.service, mode: upgrade }
+  notify: Reload systemd
+
+# --- Journal -------------------------------------------------------------------
+
+# The copy module does not create parent directories.
+- name: Create the journald drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Logs survive reboots (useful after a crash) but cannot fill the disk.
+- name: Cap the persistent journal
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/90-size.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role base).
+      [Journal]
+      Storage=persistent
+      SystemMaxUse={{ base_journal_max_use }}
+  notify: Restart journald

@@ -1,0 +1,77 @@
+---
+# ==============================================================================
+# Role: privacy
+# Removes what reports to Zorin or Canonical and keeps it from coming back:
+# the census ping, crash and usage reports, snapd, the login news, and
+# NetworkManager's connectivity check.
+# Walkthrough: docs/walkthrough.md, "Role: privacy".
+# ==============================================================================
+
+- name: Build the list of packages to remove
+  ansible.builtin.set_fact:
+    privacy_blocked: >-
+      {{ privacy_purge_packages + (['snapd'] if privacy_remove_snapd else []) }}
+
+# purge also removes their configuration. A package that is not installed is
+# skipped. Run with --check --diff first: apt lists any other package that
+# would go with them (a metapackage that depends on one of them).
+- name: Purge the reporting packages
+  ansible.builtin.apt:
+    name: "{{ privacy_blocked }}"
+    state: absent
+    purge: true
+
+# A negative priority means "never install": not as a dependency, not as a
+# recommendation, not by an upgrade of Zorin's metapackages.
+- name: Keep them from coming back
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/90-privacy-blocked
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role privacy): never install these packages.
+      Package: {{ privacy_blocked | join(' ') }}
+      Pin: release a=*
+      Pin-Priority: -10
+
+# motd-news downloads a message from Canonical twice a day for the terminal
+# login banner. It exists only on some Ubuntu derivatives: look first.
+- name: Look for the login news (motd-news)
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/motd-news.timer
+  register: privacy_motd_news
+
+- name: Turn off the news fetched for the login message
+  ansible.builtin.lineinfile:
+    path: /etc/default/motd-news
+    regexp: '^ENABLED='
+    line: 'ENABLED=0'
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  when: privacy_motd_news.stat.exists
+
+- name: Mask the news timer
+  ansible.builtin.systemd_service:
+    name: motd-news.timer
+    enabled: false
+    masked: true
+  when: privacy_motd_news.stat.exists
+
+# NetworkManager fetches a page from Zorin at every connection and every few
+# minutes to detect captive portals: it tells Zorin when and from where the
+# laptop is online. A file in conf.d overrides Zorin's own setting.
+- name: Turn off the NetworkManager connectivity check
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/90-privacy.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role privacy).
+      [connectivity]
+      enabled=false
+  when: privacy_disable_connectivity_check
+  notify: Reload NetworkManager

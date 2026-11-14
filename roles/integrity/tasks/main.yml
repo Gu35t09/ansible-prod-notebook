@@ -1,0 +1,37 @@
+---
+# ==============================================================================
+# Role: integrity
+# Every 15 minutes, checks for the signs left by rootkits and OpenSSH
+# backdoors such as Ebury, and for changes to who can become root: NTP off,
+# an SSH server installed, libraries no package installed, preloaded
+# libraries, Ebury's sockets, unexpected admins. Telegram when the findings
+# change, and daily while they last.
+# Walkthrough: docs/walkthrough.md, "Role: integrity".
+# ==============================================================================
+
+- name: Install the integrity check
+  ansible.builtin.template:
+    src: integrity-check.sh.j2
+    dest: /usr/local/sbin/integrity-check
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the integrity check service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - integrity-check.service
+    - integrity-check.timer
+
+# daemon_reload: systemd must read the new units before enabling the timer.
+- name: Enable the integrity check
+  ansible.builtin.systemd_service:
+    name: integrity-check.timer
+    enabled: true
+    state: started
+    daemon_reload: true

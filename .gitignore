@@ -1,0 +1,25 @@
+# --- Secrets: an Ansible Vault password never goes in the repository ---
+.vault_pass
+.vault_pass*
+*.vault_pass
+vault_pass*.txt
+
+# --- Ansible ---
+*.retry
+.ansible/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+
+# --- The vault: kept on the laptop of v-admin and on the emergency key, never
+# in this public repository, not even encrypted ---
+inventory/group_vars/laptops/vault.yml

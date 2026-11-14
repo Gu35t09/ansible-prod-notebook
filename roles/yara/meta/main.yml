@@ -1,0 +1,4 @@
+---
+# The scan reports through notify-telegram.
+dependencies:
+  - role: notify

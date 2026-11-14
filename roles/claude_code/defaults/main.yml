@@ -1,0 +1,136 @@
+---
+# ==============================================================================
+# Claude Code, installed by root at a pinned version, with managed settings
+# that the user and the projects cannot override.
+# ==============================================================================
+
+# Pinned version ("stable" channel on 2026-11-14). To update: change it, run
+# --tags claude-code; the manifest signature and the checksum are verified.
+claude_code_version: "2.1.311"
+claude_code_platform: "linux-x64"
+claude_code_download_base: "https://downloads.claude.ai/claude-code-releases"
+
+# Release signing key, vendored in files/claude-code.asc. The role refuses a
+# key with any other fingerprint (published in the setup documentation).
+claude_code_key_fingerprint: "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE"
+
+claude_code_install_dir: /opt/claude-code
+
+# Zorin's AppArmor profile for bwrap (package zorin-os-default-settings) takes
+# the capabilities away inside nested user namespaces, and the Claude Code
+# sandbox cannot start. Flatpak blocks nested namespaces with its own seccomp
+# filter (checked on the test VM), so disabling the profile costs nothing for
+# Flatpak apps. With the profile off, unprivileged user namespaces must stay
+# allowed (as on Fedora): kernel.apparmor_restrict_unprivileged_userns = 0.
+claude_code_disable_bwrap_profile: true
+claude_code_bwrap_profile: /etc/apparmor.d/bwrap-userns-restrict-patched
+
+# Directories the wrapper refuses to start in (besides the home, its parents
+# and its hidden folders): Claude would see all of them.
+claude_code_refused_dirs:
+  - /
+  - /bin
+  - /boot
+  - /dev
+  - /etc
+  - /home
+  - /lib
+  - /lib64
+  - /media
+  - /mnt
+  - /opt
+  - /proc
+  - /root
+  - /run
+  - /sbin
+  - /srv
+  - /sys
+  - /tmp
+  - /usr
+  - /var
+
+# Groups that can become root, or read the logs: the wrapper refuses to run
+# Claude for their members (the admin user).
+claude_code_refused_groups: [sudo, admin, wheel, adm]
+
+# Domains sandboxed commands reach without asking. Anything else is asked.
+claude_code_sandbox_allowed_domains:
+  - "github.com"
+
+# Days of transcripts kept in ~/.claude.
+claude_code_cleanup_days: 30
+
+# /etc/claude-code/managed-settings.json. Keys: https://code.claude.com/docs/en/settings
+claude_code_managed_settings:
+  permissions:
+    # Always ask; no auto mode (a classifier deciding), no bypass mode.
+    defaultMode: "default"
+    disableAutoMode: "disable"
+    disableBypassPermissionsMode: "disable"
+    # File tools and sandboxed commands read only inside the working directory.
+    blockReadsOutsideWorkingDirectories: true
+    deny:
+      # Secrets, even when the working directory is wrong.
+      - "Read(~/.ssh/**)"
+      - "Read(~/.gnupg/**)"
+      - "Read(~/.local/share/keyrings/**)"
+      - "Read(~/.var/app/**)"
+      - "Read(~/.mozilla/**)"
+      - "Read(~/.config/gh/**)"
+      - "Read(**/vault.yml)"
+      - "Read(**/.vault_pass*)"
+      - "Read(**/.env)"
+      - "Read(**/.env.*)"
+      # Places where a change would run later, outside any session.
+      - "Edit(~/.bashrc)"
+      - "Edit(~/.profile)"
+      - "Edit(~/.bash_profile)"
+      - "Edit(~/.config/autostart/**)"
+      - "Edit(~/.config/systemd/**)"
+      - "Edit(~/.local/bin/**)"
+      - "Edit(~/.local/share/applications/**)"
+      - "Edit(~/.ssh/**)"
+      # Claude's own configuration. Its memory (~/.claude/projects/*/memory)
+      # stays writable.
+      - "Edit(~/.claude/settings.json)"
+      - "Edit(~/.claude/settings.local.json)"
+      - "Edit(~/.claude.json)"
+      # Production and privileges: the playbooks and pushes are run by hand.
+      # Prefix rules are a speed bump; the real barriers are the sandbox
+      # network (no route to the servers), sudo's password and the YubiKey.
+      - "Bash(ssh *)"
+      - "Bash(scp *)"
+      - "Bash(sftp *)"
+      - "Bash(ansible *)"
+      - "Bash(ansible-playbook *)"
+      - "Bash(ansible-vault *)"
+      - "Bash(git push *)"
+      - "Bash(sudo *)"
+      - "Bash(su *)"
+      - "Bash(pkexec *)"
+  # Only the rules above count: a project's .claude/settings.json, or an
+  # "always allow" answer, cannot add rules, hooks or MCP servers.
+  allowManagedPermissionRulesOnly: true
+  allowManagedHooksOnly: true
+  allowManagedMcpServersOnly: true
+  cleanupPeriodDays: "{{ claude_code_cleanup_days | int }}"
+  sandbox:
+    enabled: true
+    # Fail closed: no start without the sandbox, no retry outside it.
+    failIfUnavailable: true
+    allowUnsandboxedCommands: false
+    allowNestedUserNamespaces: false
+    # Sandboxed commands run without asking: they write only in the working
+    # directory and reach only the allowed domains.
+    autoAllowBashIfSandboxed: true
+    network:
+      allowedDomains: "{{ claude_code_sandbox_allowed_domains }}"
+  env:
+    # No telemetry, error reports, feedback, update checks or auto-updates:
+    # updates come only from this role.
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    DISABLE_TELEMETRY: "1"
+    DISABLE_ERROR_REPORTING: "1"
+    DISABLE_AUTOUPDATER: "1"
+    DISABLE_UPDATES: "1"
+    CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1"

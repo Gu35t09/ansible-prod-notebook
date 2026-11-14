@@ -1,0 +1,38 @@
+#!/usr/sbin/nft -f
+# Managed by Ansible (role hardening).
+# Only this table is replaced: tables of other tools (ufw, libvirt) are left alone.
+
+table inet laptop_filter
+delete table inet laptop_filter
+
+table inet laptop_filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        iif "lo" accept
+        ct state invalid drop
+        ct state established,related accept
+
+        # IPv6 needs neighbour discovery and router advertisements.
+        # Neighbour messages come from global addresses too; they are valid only
+        # on the local link (hop limit 255).
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } ip6 hoplimit 255 accept
+        icmpv6 type { nd-router-advert, mld-listener-query } ip6 saddr fe80::/10 accept
+        # DHCPv6 replies.
+        ip6 saddr fe80::/10 udp dport 546 accept
+{% if hardening_inbound_tcp_ports %}
+        tcp dport { {{ hardening_inbound_tcp_ports | join(', ') }} } accept
+{% endif %}
+{% if hardening_inbound_udp_ports %}
+        udp dport { {{ hardening_inbound_udp_ports | join(', ') }} } accept
+{% endif %}
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}

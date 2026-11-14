@@ -1,0 +1,49 @@
+---
+# ==============================================================================
+# Role: hardening
+# Nothing listens for the network: no SSH server, an nftables firewall that
+# drops every inbound connection, kernel and network sysctl hardening.
+# Walkthrough: docs/walkthrough.md, "Role: hardening".
+# ==============================================================================
+
+# The laptop is a client: nobody logs in to it over the network. Ubuntu's
+# desktop does not install sshd; this makes sure it never appears.
+- name: Make sure no SSH server is installed
+  ansible.builtin.apt:
+    name: openssh-server
+    state: absent
+    purge: true
+
+- name: Install nftables
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+# validate: the new file is checked with "nft -c" before it replaces the old
+# one, so a syntax error never leaves the laptop without a firewall.
+- name: Write the host firewall
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "nft -c -f %s"
+  notify: Reload nftables
+
+# nftables.service loads /etc/nftables.conf at boot.
+- name: Load the firewall at boot
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true
+    state: started
+
+# The values and what each one is for are in defaults/main.yml.
+- name: Write the kernel and network settings
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.d/90-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl

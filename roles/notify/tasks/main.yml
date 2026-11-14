@@ -1,0 +1,129 @@
+---
+# ==============================================================================
+# Role: notify
+# One helper sends every Telegram message of the laptop (updates, ClamAV,
+# SMART, disk space, integrity, YARA); another calls the Uptime Kuma push
+# monitor of each scheduled job when it ends. The secrets live only in
+# root-only environment files, never in the scripts or the process list.
+# Walkthrough: docs/walkthrough.md, "Role: notify".
+# ==============================================================================
+
+# Fail early with a clear message instead of installing a helper that
+# cannot send anything.
+- name: Check the Telegram settings
+  ansible.builtin.assert:
+    that:
+      - telegram_bot_token | length > 0
+      - telegram_chat_id | length > 0
+    fail_msg: >-
+      notify_telegram_enabled is true but the Telegram token or chat ID is empty:
+      define vault_telegram_bot_token and vault_telegram_chat_id in
+      inventory/group_vars/laptops/vault.yml and run with --ask-vault-pass.
+    quiet: true
+  when: notify_telegram_enabled | bool
+
+- name: Create the configuration directory
+  ansible.builtin.file:
+    path: "{{ notify_env_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# no_log: the token would otherwise show in the output with --diff or -v.
+- name: Write the notification credentials
+  ansible.builtin.copy:
+    dest: "{{ notify_env_file }}"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook): manual changes will be overwritten.
+      NOTIFY_ENABLED={{ notify_telegram_enabled | bool | string | lower | quote }}
+      TELEGRAM_BOT_TOKEN={{ telegram_bot_token | quote }}
+      TELEGRAM_CHAT_ID={{ telegram_chat_id | quote }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Install the notification helper
+  ansible.builtin.template:
+    src: notify-telegram.sh.j2
+    dest: /usr/local/sbin/notify-telegram
+    owner: root
+    group: root
+    mode: "0750"
+
+# Every token must belong to a known job, and tokens need a host.
+- name: Check the push monitor settings
+  ansible.builtin.assert:
+    that:
+      - notify_push_tokens is mapping
+      - notify_push_tokens.keys() | difference(notify_push_units.keys()) | length == 0
+      - notify_push_tokens | length == 0 or notify_push_host | length > 0
+    fail_msg: >-
+      notify_push_tokens must map job names ({{ notify_push_units.keys() | join(', ') }})
+      to push tokens, and needs notify_push_host.
+    quiet: true
+
+- name: Write the push monitor tokens
+  ansible.builtin.copy:
+    dest: "{{ notify_push_env_file }}"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook): manual changes will be overwritten.
+      PUSH_HOST={{ notify_push_host | quote }}
+      PUSH_ADDRESS={{ notify_push_address | quote }}
+      PUSH_TIMEOUT={{ notify_push_timeout | int }}
+      {% for job, token in notify_push_tokens | dictsort %}
+      PUSH_TOKEN_{{ job | upper }}={{ token | quote }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Install the push helper
+  ansible.builtin.template:
+    src: notify-push.sh.j2
+    dest: /usr/local/sbin/notify-push
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create the drop-in directories of the jobs
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.value }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ notify_push_units | dict2items }}"
+  loop_control:
+    label: "{{ item.value }}"
+  when: item.key in notify_push_tokens
+
+# 90-: after any other ExecStopPost of the unit (the unattended-upgrades
+# report is 50-telegram.conf), so the call says the whole job ended.
+- name: Call the push monitor at the end of each job
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.value }}.d/90-push.conf"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook): manual changes will be overwritten.
+      [Service]
+      ExecStopPost=/usr/local/sbin/notify-push {{ item.key }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ notify_push_units | dict2items }}"
+  loop_control:
+    label: "{{ item.value }}"
+  when: item.key in notify_push_tokens
+  notify: Reload systemd for the push calls
+
+- name: Remove the call from the jobs without a token
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.value }}.d/90-push.conf"
+    state: absent
+  loop: "{{ notify_push_units | dict2items }}"
+  loop_control:
+    label: "{{ item.value }}"
+  when: item.key not in notify_push_tokens
+  notify: Reload systemd for the push calls

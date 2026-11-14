@@ -1,0 +1,12 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Called by smartd-runner with the SMARTD_* variables set by smartd.
+/usr/local/sbin/notify-telegram "💽 SMART WARNING
+
+{{ notify_host_label }}: $(hostname)
+Device: ${SMARTD_DEVICESTRING:-${SMARTD_DEVICE:-unknown}}
+Type: ${SMARTD_FAILTYPE:-unknown}
+
+${SMARTD_MESSAGE:-no details}
+
+See the maintenance guide, \"SMART warning\"."

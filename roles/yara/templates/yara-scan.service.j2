@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Scheduled YARA scan with Telegram notification
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yara-scan
+# Exit code 1 means "matches found": already reported, not a unit failure.
+SuccessExitStatus=1
+# From ESET's detect_ebury.sh: these variables defuse Ebury's userland rootkit.
+Environment=H=1 I=1 LD_PRELOAD=: LD_DEBUG=:
+# Lowest CPU and disk priority: the scan must not slow the desktop down.
+Nice=19
+IOSchedulingClass=idle

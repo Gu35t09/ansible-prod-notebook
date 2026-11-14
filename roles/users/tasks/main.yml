@@ -1,0 +1,85 @@
+---
+# ==============================================================================
+# Role: users
+# Two users: laptop_admin_user (v-admin, created by the installer, in sudo)
+# runs the playbooks and holds the access to production; laptop_user (v), with
+# no supplementary group, is the everyday user where Claude Code runs.
+# Walkthrough: docs/walkthrough.md, "Role: users".
+# ==============================================================================
+
+# Without it the next run could not use sudo: stop before touching anything.
+- name: Check that the admin user is in sudo
+  ansible.builtin.command: id -nG {{ laptop_admin_user }}
+  register: users_admin_groups
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    users_admin_groups.rc != 0 or
+    'sudo' not in users_admin_groups.stdout.split()
+
+# groups + append: false makes the list exclusive: a group added by hand
+# (sudo included) is removed at the next run.
+- name: Create the everyday user, without sudo
+  ansible.builtin.user:
+    name: "{{ laptop_user }}"
+    shell: /bin/bash
+    create_home: true
+    groups: "{{ users_daily_groups }}"
+    append: false
+  register: users_daily
+
+# Read back, not trusted: in check mode the user may not exist yet.
+- name: Read the groups of the everyday user
+  ansible.builtin.command: id -nG {{ laptop_user }}
+  register: users_daily_groups_now
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Check that the everyday user has no admin group
+  ansible.builtin.assert:
+    that: >-
+      users_daily_groups_now.rc != 0 or
+      (users_daily_groups_now.stdout.split() | intersect(users_forbidden_groups) | length == 0)
+    fail_msg: "{{ laptop_user }} is in {{ users_daily_groups_now.stdout.split() | intersect(users_forbidden_groups) | join(', ') }}."
+    quiet: true
+
+# A rule in /etc/sudoers.d naming the user directly would not show in its
+# groups: ask sudo itself.
+- name: Check that sudo grants nothing to the everyday user
+  ansible.builtin.command: sudo -l -U {{ laptop_user }}
+  register: users_daily_sudo
+  changed_when: false
+  check_mode: false
+  failed_when: "users_daily_sudo.rc == 0 and 'is not allowed to run sudo' not in users_daily_sudo.stdout"
+  when: not users_daily is changed or not ansible_check_mode
+
+# Ubuntu creates homes in 0750: other users of the group could read them.
+# 0700 keeps the files of v-admin (SSH config, repositories) away from v, and
+# the reverse.
+- name: Make the homes readable only by their owner
+  ansible.builtin.file:
+    path: "/home/{{ item }}"
+    state: directory
+    owner: "{{ item }}"
+    mode: "{{ users_home_mode }}"
+  loop:
+    - "{{ laptop_admin_user }}"
+    - "{{ laptop_user }}"
+  when: not (item == laptop_user and users_daily is changed and ansible_check_mode)
+
+# The password is never in the repository: it is set by hand once. passwd
+# --status prints L (locked) or NP (none) until then.
+- name: Read the password status of the everyday user
+  ansible.builtin.command: passwd --status {{ laptop_user }}
+  register: users_daily_passwd
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Remind to set the password of the everyday user
+  ansible.builtin.debug:
+    msg: >-
+      {{ laptop_user }} has no password yet: set it once with
+      `sudo passwd {{ laptop_user }}` (it never goes in the repository).
+  when: users_daily_passwd.stdout.split() | length > 1 and users_daily_passwd.stdout.split()[1] in ['L', 'NP']

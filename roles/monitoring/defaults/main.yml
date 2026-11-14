@@ -1,0 +1,20 @@
+---
+# ==============================================================================
+# Role monitoring: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# ==============================================================================
+
+# SMART monitoring is skipped on virtual machines (no physical disk to read).
+smartd_enabled: "{{ ansible_facts['virtualization_role'] | default('') != 'guest' }}"
+# Self-tests at hours when the laptop is usually on: short daily at 12:00,
+# long on Saturdays at 13:00. smartd runs a test only if it is running at
+# that hour; a missed test is simply skipped.
+smartd_self_tests: "(S/../.././12|L/../../6/13)"
+# Temperature: report changes of 4 °C, info at 60 °C, alert at 70 °C (laptop
+# NVMe drives run warmer than the server's).
+smartd_temperature: "4,60,70"
+
+disk_space_mountpoints:
+  - /
+  - /boot
+disk_space_warn_percent: 85
+disk_space_check_on_calendar: "*:0/15"

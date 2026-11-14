@@ -1,0 +1,41 @@
+#!/bin/bash
+# Managed by Ansible (role claude_code).
+# Runs Claude Code {{ claude_code_version }} only from a project folder: Claude
+# reads the whole working directory, so refuse /, system directories, the
+# home, its parents and its hidden folders. cd into a project first.
+set -euo pipefail
+
+claude={{ claude_code_install_dir }}/{{ claude_code_version }}/claude
+
+# Version checks read nothing: allowed anywhere.
+if [[ $# -eq 1 && ( "$1" == "--version" || "$1" == "-v" ) ]]; then
+  exec "$claude" "$1"
+fi
+
+# Claude Code runs only in the everyday user, never in an account that can
+# become root.
+for group in $(id -nG); do
+  case "$group" in
+{% for g in claude_code_refused_groups %}
+    {{ g }}) echo "claude: refusing to run as $(id -un), a member of $group. Use {{ laptop_user }}." >&2; exit 1 ;;
+{% endfor %}
+  esac
+done
+
+dir=$(pwd -P)
+home=$(readlink -f "$HOME")
+
+refuse() { echo "claude: refusing to start in $dir: $1. cd into a project folder." >&2; exit 1; }
+
+case "$dir" in
+{% for d in claude_code_refused_dirs %}
+  {{ d }}) refuse "system directory" ;;
+{% endfor %}
+  /boot/*|/dev/*|/etc/*|/proc/*|/run/*|/sys/*|/usr/*) refuse "inside a system directory" ;;
+esac
+[[ "$dir" == "$home" ]] && refuse "it is your home"
+[[ "$home/" == "$dir/"* ]] && refuse "it contains your home"
+[[ "$dir" == "$home"/.* ]] && refuse "it is inside a hidden folder of your home"
+[[ -O "$dir" ]] || refuse "it is not owned by you"
+
+exec "$claude" "$@"

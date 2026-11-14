@@ -1,0 +1,24 @@
+---
+# ==============================================================================
+# Role base: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# ==============================================================================
+
+base_packages:
+  - git
+  - python3-venv
+  - unattended-upgrades
+  - needrestart
+  - fwupd
+
+# What unattended-upgrades installs every day. Zorin reports itself as "Zorin"
+# to lsb_release, so the stock "${distro_id}:${distro_codename}-security"
+# patterns may not match the Ubuntu archive: name the origins explicitly.
+# Check what matches with: sudo unattended-upgrade --dry-run -d
+base_unattended_origins:
+  - "origin=Ubuntu,archive=noble-security"
+  - "origin=Ubuntu,archive=noble-updates"
+
+# The laptop never reboots by itself: GNOME shows when a reboot is needed.
+base_unattended_reboot: false
+
+base_journal_max_use: "500M"

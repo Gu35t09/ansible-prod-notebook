@@ -1,0 +1,44 @@
+---
+# ==============================================================================
+# Role clamav: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# ==============================================================================
+
+clamav_enabled: true
+# systemd OnCalendar expression (see "man systemd.time"). Daily at 12:30, when
+# the laptop is usually on; a scan missed while it was off runs at the next
+# boot (Persistent=true), at idle priority.
+clamav_scan_on_calendar: "*-*-* 12:30:00"
+# Where files from outside arrive: the homes (downloads, mail attachments,
+# repositories, Claude's projects) and the temporary directories. Missing
+# paths are skipped with a warning.
+clamav_scan_paths:
+  - /home
+  - /tmp
+  - /var/tmp
+  - /opt
+# Left out (find -path patterns): caches that change all the time and hold
+# nothing you opened yourself, the Flatpak runtimes (signed and verified by
+# Flatpak), the trash.
+clamav_exclude_paths:
+  - "/home/*/.cache"
+  - "/home/*/.local/share/flatpak"
+  - "/home/*/.local/share/Trash"
+  - "/home/*/.var/app/*/cache"
+  # The YARA rules vendored in the clones of ansible-prod-notebook and
+  # ansible-prod-srv: they contain the strings they look for.
+  - "*/roles/yara/files/rules"
+# Files larger than this are skipped (ClamAV's own limits stop at 100 MB).
+clamav_max_file_size_mb: 100
+clamav_log_dir: /var/log/clamav
+clamav_log_retention_days: 30
+# Action on detection:
+#   notify_only  send the report only
+#   quarantine   move infected files to clamav_quarantine_dir and notify
+#   remove       delete infected files and notify
+clamav_action_on_detect: "quarantine"
+# Must be outside clamav_scan_paths, or quarantined files would be found again
+# at every scan. The role checks it.
+clamav_quarantine_dir: /root/clamav-quarantine
+# Notify also when a scan finds nothing: the daily message shows that the
+# laptop's scans and notifications work.
+clamav_notify_clean: true
