@@ -1,9 +1,14 @@
 #!/bin/bash
 # {{ ansible_managed }}
-# YARA scan of files and of the memory of selected processes, with a Telegram
-# report. The rules in /etc/yara/rules are compiled at every run (it takes
-# under a second), one namespace per source directory.
-# Usage: yara-scan                 scan and report
+# YARA scan of files and of the memory of selected processes. The rules in
+# /etc/yara/rules are compiled at every run (it takes under a second), one
+# namespace per source directory.
+# It runs in yara-scan.service, a sandbox with no network and a read-only
+# file system (Ubuntu's yara is in universe and gets no security updates):
+# it cannot send anything. It writes the message to send in
+# <log dir>/last-report; yara-report.service, started by systemd when the scan
+# ends (OnSuccess/OnFailure), sends it to Telegram.
+# Usage: yara-scan                 scan, write the log and the report
 #        yara-scan --compile-only  only check that the rules compile
 # Exit codes: 0 clean, 1 matches found, 2 error.
 set -u
@@ -16,7 +21,6 @@ EXCLUDE_PATHS=({% for path in yara_exclude_paths %}{{ path | quote }}{{ ' ' if n
 PROCESS_NAMES=({% for name in yara_process_names %}{{ name | quote }}{{ ' ' if not loop.last }}{% endfor %})
 MAX_SIZE_MB={{ yara_max_file_size_mb | int }}
 THREADS={{ yara_threads | int }}
-NOTIFY_CLEAN={{ yara_notify_clean | bool | string | lower | quote }}
 LOG_DIR={{ yara_log_dir | quote }}
 LOG_RETENTION_DAYS={{ yara_log_retention_days | int }}
 HOST=$(hostname)
@@ -24,8 +28,9 @@ LABEL={{ notify_host_label | quote }}
 # Jinja stops here: the rest is plain bash, where array lengths look like Jinja comments.
 {% raw %}
 
-# Under /run, never scanned: the compiled rules would match themselves.
-WORK=$(mktemp -d /run/yara-scan.XXXXXX)
+# Under /run, never scanned: the compiled rules would match themselves. In the
+# service, the writable runtime directory systemd creates for it.
+WORK=$(mktemp -d "${RUNTIME_DIRECTORY:-/run}/yara-scan.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 # Compiles every rule file, or every one not excluded from the memory scan.
@@ -55,18 +60,21 @@ fi
 mkdir -p "$LOG_DIR"
 find "$LOG_DIR" -maxdepth 1 -name 'scan_*.log' -mtime +"$LOG_RETENTION_DAYS" -delete
 LOG_FILE="${LOG_DIR}/scan_$(date +%Y%m%d_%H%M%S).log"
+# The message for yara-report: removed now, written only at the end, so a scan
+# that dies halfway leaves no stale report.
+REPORT_FILE="${LOG_DIR}/last-report"
+rm -f "$REPORT_FILE"
 
-notify() {
-    if ! /usr/local/sbin/notify-telegram "$1" >> "$LOG_FILE" 2>&1; then
-        echo "ERROR: Telegram notification not sent." >> "$LOG_FILE"
-    fi
+report() {
+    printf '%s\n' "$1" > "$REPORT_FILE"
 }
 
 fail() {
     echo "ERROR: $1" >> "$LOG_FILE"
-    notify "❌ YARA: SCAN ERROR
+    report "❌ YARA: SCAN ERROR
 
-The scheduled scan on ${HOST} failed: $1
+${LABEL}: ${HOST}
+The scheduled scan failed: $1
 Log: ${LOG_FILE}"
     exit 2
 }
@@ -145,7 +153,7 @@ cat "$WORK/memory_matches" >> "$LOG_FILE"
 matches=$(cat "$WORK/file_matches" "$WORK/memory_matches")
 if [ -n "$matches" ]; then
     count=$(wc -l <<< "$matches")
-    notify "🚨 YARA: ${count} MATCH(ES)
+    report "🚨 YARA: ${count} MATCH(ES)
 
 ${LABEL}: ${HOST}
 📁 Files scanned: ${file_count}, processes: ${#pids[@]}
@@ -159,11 +167,9 @@ Nothing was moved or deleted. See the maintenance guide, \"YARA match\"."
 fi
 
 echo "Scan completed. No matches." >> "$LOG_FILE"
-if [ "$NOTIFY_CLEAN" = "true" ]; then
-    notify "✅ YARA: SCAN CLEAN
+report "✅ YARA: SCAN CLEAN
 
 ${LABEL}: ${HOST}
 📁 Files scanned: ${file_count}, processes: ${#pids[@]}"
-fi
 exit 0
 {% endraw %}

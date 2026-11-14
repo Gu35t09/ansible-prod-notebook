@@ -79,7 +79,18 @@
   changed_when: false
   when: yara_rules_copy is changed or yara_rules_removed is changed or yara_script is changed
 
-- name: Install the scan service and timer
+# The report runs outside the scan's sandbox: it is the part with network.
+- name: Install the report script
+  ansible.builtin.template:
+    src: yara-report.sh.j2
+    dest: /usr/local/sbin/yara-report
+    owner: root
+    group: root
+    mode: "0750"
+
+# yara-scan.service is the sandbox (see its comments); yara-report.service
+# sends the result; the timer starts the scan.
+- name: Install the scan and report services and the timer
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/systemd/system/{{ item }}"
@@ -88,7 +99,15 @@
     mode: "0644"
   loop:
     - yara-scan.service
+    - yara-report.service
     - yara-scan.timer
+
+# The push call used to be attached to yara-scan.service, where it would now
+# run with no network: notify attaches it to yara-report.service instead.
+- name: Remove the old push call from the sandboxed scan
+  ansible.builtin.file:
+    path: /etc/systemd/system/yara-scan.service.d/90-push.conf
+    state: absent
 
 # daemon_reload: systemd must read the new units before enabling the timer.
 - name: Enable the scheduled scan

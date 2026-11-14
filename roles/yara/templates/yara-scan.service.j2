@@ -1,14 +1,55 @@
 # {{ ansible_managed }}
+# The scan, in a sandbox. Ubuntu's yara package is in universe and gets no
+# security updates, and YARA parses every file of the system as root: a file
+# crafted to exploit its parser must not be able to change the system or send
+# anything out. So: no network, a read-only file system except the log, only
+# the capabilities to read any file and the memory of processes, no new
+# privileges, no namespaces. The report is sent by yara-report.service.
 [Unit]
-Description=Scheduled YARA scan with Telegram notification
+Description=Scheduled YARA scan (sandboxed, no network)
+OnSuccess=yara-report.service
+OnFailure=yara-report.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/yara-scan
-# Exit code 1 means "matches found": already reported, not a unit failure.
+# Exit code 1 means "matches found": reported, not a unit failure.
 SuccessExitStatus=1
 # From ESET's detect_ebury.sh: these variables defuse Ebury's userland rootkit.
 Environment=H=1 I=1 LD_PRELOAD=: LD_DEBUG=:
 # Lowest CPU and disk priority: the scan must not slow the desktop down.
 Nice=19
 IOSchedulingClass=idle
+UMask=0077
+
+# --- Sandbox ---
+# No network at all: only the loopback of a private network namespace.
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+# Root, but only able to read any file (CAP_DAC_READ_SEARCH) and to read the
+# memory of other processes (CAP_SYS_PTRACE); nothing gained through setuid.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+# Everything read-only, except the log directory and a private /run/yara-scan.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths={{ yara_log_dir }}
+RuntimeDirectory=yara-scan
+RuntimeDirectoryMode=0700
+# No device nodes (files in /dev/shm are still read: they are not devices).
+DevicePolicy=closed
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# The usual system calls of a service, plus ptrace (@debug) for the memory scan.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @debug
+SystemCallErrorNumber=EPERM

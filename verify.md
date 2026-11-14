@@ -179,9 +179,18 @@ And the admin check: `sudo gpasswd -a v sudo && sudo integrity-check` reports "u
 ## 12. YARA
 
 ```bash
-apt-cache policy yara | grep -E '^[a-z]|500'
+apt-cache policy yara | grep -E '^[a-z]|500'                 # universe, hence the sandbox
 sudo yara-scan --compile-only && echo "rules OK"
 systemctl list-timers yara-scan.timer
+systemd-analyze security yara-scan.service | tail -1          # the sandbox's exposure score
+ls /etc/systemd/system/yara-scan.service.d/90-push.conf 2>/dev/null || echo "no push call on the sandboxed scan"
+ls /etc/systemd/system/yara-report.service.d/90-push.conf     # the push call is on the report
+```
+
+The sandbox has no network. This must fail, with "Network is unreachable" or a resolution error:
+
+```bash
+sudo systemd-run --wait --pipe -p PrivateNetwork=yes -p RestrictAddressFamilies=AF_UNIX curl -sS --max-time 5 https://api.telegram.org
 ```
 
 Test with the EICAR file (the Elastic rules include it):
@@ -193,4 +202,4 @@ sudo sh -c 'cat "$(ls -t /var/log/yara/scan_*.log | head -n 1)"' | grep -v '^err
 rm -f /tmp/eicar.com
 ```
 
-Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram. If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.
+Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram, sent by `yara-report.service` (`journalctl -u yara-report.service -n 20 -o cat` shows it). If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.

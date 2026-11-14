@@ -167,6 +167,8 @@ For compromise: [Suspected compromise of the laptop](#suspected-compromise-of-th
 
 "❌ YARA: SCAN ERROR": usually the rules do not compile after an update (`sudo yara-scan --compile-only` shows the error), or the disk is full. Fix the rules in the repository and run `--tags yara`.
 
+If the message says the unit ended with `signal` or `exit-code` and no reason of its own, the sandbox may have stopped something: `journalctl -u yara-scan.service -n 50` and, as `v-admin`, `sudo journalctl -k -g 'audit.*yara'` for a blocked system call. After a YARA or systemd update, a sandbox option can need adjusting (`roles/yara/templates/yara-scan.service.j2`); do not remove `PrivateNetwork` or the capability limit, which are the point of it.
+
 ### SMART warning
 
 "💽 SMART WARNING": read the type and the message. As `v-admin`: `sudo smartctl -a /dev/nvme0n1 | grep -iE 'critical warning|percentage used|media and data integrity|available spare'`. A critical warning, media errors or the spare below its threshold mean the disk is failing: make sure the data of `v` is backed up (OpenCloud, GitHub) and plan the replacement ([Reinstall the laptop](#reinstall-the-laptop)). A temperature warning alone: the laptop was working hard on a warm surface.
@@ -408,7 +410,7 @@ What an attacker in `v` can reach: what `v` can read and its sessions (GitHub, C
 | Claude Code transcripts | `~/.claude/projects/` (of `v`), deleted after 30 days |
 | Unattended-upgrades report | `journalctl -u apt-daily-upgrade.service -u apt-daily.service` |
 | ClamAV scans | `/var/log/clamav/scan_*.log` (30 days), `journalctl -u clamav-scan.service` |
-| YARA scans | `/var/log/yara/scan_*.log` (30 days), `journalctl -u yara-scan.service` |
+| YARA scans | `/var/log/yara/scan_*.log` (30 days), `/var/log/yara/last-report`, `journalctl -u yara-scan.service -u yara-report.service` |
 | Integrity check | `journalctl -u integrity-check.service` |
 | Disk space, SMART | `journalctl -u disk-space-check.service`, `journalctl -u smartmontools` |
 | Push calls | `journalctl -g notify-push` |

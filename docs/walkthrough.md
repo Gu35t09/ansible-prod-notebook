@@ -141,7 +141,7 @@ For each job with a token, `/etc/systemd/system/<unit>.d/90-push.conf` adds `Exe
 | --- | --- |
 | `unattended_upgrades` | `apt-daily-upgrade.service` |
 | `clamav` | `clamav-scan.service` |
-| `yara` | `yara-scan.service` |
+| `yara` | `yara-report.service` (the scan itself has no network, see Role: yara) |
 | `integrity` | `integrity-check.service` |
 | `disk_space` | `disk-space-check.service` |
 
@@ -481,8 +481,37 @@ The rules are vendored in `roles/yara/files/rules` (the same as the server: ESET
 **Install the scan script** / **Check that the rules compile**
 `/usr/local/sbin/yara-scan --compile-only` compiles every rule after any change: a rule that does not compile would stop every scan, so the run fails here instead.
 
-**Install the scan service and timer** / **Enable the scheduled scan**
+**Install the report script** / **Install the scan and report services and the timer** / **Remove the old push call from the sandboxed scan** / **Enable the scheduled scan**
 Daily at 13:30 (`yara_scan_on_calendar`), after ClamAV's, `Persistent=true`, idle priority, the same anti-rootkit environment as the integrity check.
+
+### The sandbox
+
+Ubuntu's `yara` package is in **universe**: `4.5.0-1build2`, the version of the 24.04 release, with no update since (checked on the VM). ClamAV is in main and gets Canonical's security updates; YARA does not. YARA parses every file of the system as root, downloads included: a file crafted to exploit a bug in its parser would run code as root. On the server YARA is in Debian's main, so the server does not need this.
+
+The scan is therefore split in two units:
+
+| Unit | Runs | Network | Can write |
+| --- | --- | --- | --- |
+| `yara-scan.service` | `/usr/local/sbin/yara-scan`: compiles the rules, scans files and process memory, writes the log and `<log dir>/last-report` (the message to send) | none | `/var/log/yara` and a private `/run/yara-scan` |
+| `yara-report.service` | `/usr/local/sbin/yara-report`: reads the scan's result from systemd (`Result`, `ExecMainStatus`) and `last-report`, sends it to Telegram | yes | nothing it needs |
+
+`yara-scan.service` has `OnSuccess=` and `OnFailure=yara-report.service`: whatever happens to the scan (clean, matches, an error, killed), the report runs. The sandbox of the scan, option by option:
+
+| Option | Effect |
+| --- | --- |
+| `PrivateNetwork=yes`, `RestrictAddressFamilies=AF_UNIX` | No network: a compromised YARA cannot send the files it reads anywhere. `AF_UNIX` only, for the journal |
+| `CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_PTRACE` | Root keeps only the ability to read any file and the memory of other processes: no writing over permissions, no loading modules, no mounting, nothing else |
+| `NoNewPrivileges=yes`, `RestrictSUIDSGID=yes` | Nothing gained by running a setuid program, none created |
+| `ProtectSystem=strict`, `ProtectHome=read-only`, `ReadWritePaths=/var/log/yara`, `RuntimeDirectory=yara-scan` | The whole file system read-only, except the log and a private runtime directory for the compiled rules |
+| `DevicePolicy=closed` | No device nodes (files in `/dev/shm` are still read: they are not devices) |
+| `ProtectKernelTunables`, `ProtectKernelModules`, `ProtectKernelLogs`, `ProtectControlGroups`, `ProtectClock`, `ProtectHostname` | The kernel's settings, modules, logs, cgroups, clock and host name out of reach |
+| `RestrictNamespaces=yes`, `RestrictRealtime=yes`, `LockPersonality=yes`, `MemoryDenyWriteExecute=yes` | No namespaces (the usual first step of a sandbox escape), no real-time scheduling, no writable-and-executable memory |
+| `SystemCallFilter=@system-service @debug`, `SystemCallArchitectures=native` | Only a service's usual system calls, plus `ptrace` (in `@debug`) for the memory scan |
+
+The Uptime Kuma push call of the `yara` job is attached to `yara-report.service` (`notify_push_units`), which exits 1 when the scan failed: a call from the scan's own unit would have no network. The role removes the old drop-in from `yara-scan.service`.
+
+Check: `systemd-analyze security yara-scan.service` rates the sandbox (lower is better).
+
 
 The script:
 
@@ -490,7 +519,7 @@ The script:
 2. builds the file list with `find`: `yara_scan_paths` (binaries, libraries, `/usr/local`, `/opt`, `/etc`, `/root`, `/home`, temporary directories, cron spools, `/dev/shm`), no other filesystems, pruning `yara_exclude_paths` (the rules, ClamAV's quarantine, the homes' caches, trash and Flatpak runtimes, the YARA rules vendored in the repository clones), files up to 64 MB;
 3. scans them with 2 threads;
 4. scans the memory of the processes named in `yara_process_names` (empty on the laptop: there is no sshd) and of every process running from `/tmp`, `/var/tmp`, `/dev/shm`, memfd or a deleted file: what droppers and miners look like. ESET's SSHDoor rules are left out of the memory scan (they match a clean sshd in memory);
-5. reports matches on Telegram (rule and file or process, up to 20). Nothing is moved or deleted. No message when clean (`yara_notify_clean: false`): ClamAV's daily message already shows that the notifications work.
+5. writes the message (matches with the rule and the file or process, up to 20; an error; or "clean") to `last-report`, which `yara-report` sends. Nothing is moved or deleted. No message when clean (`yara_notify_clean: false`): ClamAV's daily message already shows that the notifications work.
 
 Logs in `/var/log/yara/scan_*.log`, kept 30 days.
 
@@ -546,7 +575,7 @@ Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT
 | `/etc/smartd.conf`, `/etc/smartmontools/run.d/20telegram` | monitoring | SMART monitoring and its Telegram hook |
 | `/usr/local/sbin/disk-space-check`, `/etc/systemd/system/disk-space-check.{service,timer}` | monitoring | Disk space check |
 | `/usr/local/sbin/integrity-check`, `/etc/systemd/system/integrity-check.{service,timer}` | integrity | Integrity check |
-| `/etc/yara/rules/`, `/usr/local/sbin/yara-scan`, `/etc/systemd/system/yara-scan.{service,timer}` | yara | Rules and daily scan |
+| `/etc/yara/rules/`, `/usr/local/sbin/yara-scan`, `/usr/local/sbin/yara-report`, `/etc/systemd/system/yara-scan.{service,timer}`, `/etc/systemd/system/yara-report.service` | yara | Rules, sandboxed daily scan, report |
 
 Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service`, `clamav-daemon`, `clamav-freshclam` and `smartmontools` (enabled). State and logs: `/var/lib/{unattended-upgrades-report,disk-space-check,integrity-check}/`, `/var/log/{clamav,yara}/`.
 
@@ -558,7 +587,7 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **Captive portals** need an `http://` page opened by hand (connectivity check off).
 - **Not configured yet**: the GNOME privacy settings and screen lock (`desktop`), Flatpak apps and remotes (`apps`; the `zorinos` Flatpak remote is still there), the YubiKey and SSH to production for `v-admin` (`security_keys`).
 - **Claude Code updates** are manual: no Renovate for `claude_code_version` yet.
-- **Detection packages and universe.** ClamAV and YARA parse untrusted files, YARA as root. On Debian (the server) they are in main; on Ubuntu, check on the VM where they come from (`verify.md` sections 9 and 12). If they are in universe, their security fixes depend on the community: weigh it, and consider sandboxing the scan units with systemd options.
+- **Detection packages and universe.** ClamAV is in main (1.5.4 from `noble-security` on the VM). YARA is in universe with no update since the release: its scan runs in a systemd sandbox (section 13). The sandbox limits the damage of an exploited YARA; it does not fix the bug, and a kernel exploit from inside it would still escape.
 - **Shared Telegram bot.** The laptop holds the server's bot token (root only). Losing the laptop means rotating it for the server and Uptime Kuma too.
 - **Monitoring is weaker than the server's.** Uptime Kuma sees the laptop only at home, and the 7-day heartbeat catches a job that stopped, not a job that failed today (Telegram does that).
 - **Scans match what you keep.** Documentation or Claude transcripts that quote malware strings can match YARA or ClamAV. The repositories' own rule files are excluded; anything else is reported, and judged by you (maintenance guide, "YARA match").

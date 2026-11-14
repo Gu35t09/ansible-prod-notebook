@@ -1,0 +1,52 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Sends the result of the last YARA scan to Telegram. Run by
+# yara-report.service, which systemd starts when yara-scan.service ends
+# (OnSuccess= and OnFailure=). The scan runs with no network: this script,
+# outside its sandbox, is the one that talks to Telegram.
+# It reads the scan's result from systemd and the message the scan wrote in
+# <log dir>/last-report. It sends nothing for a clean scan unless
+# yara_notify_clean is true.
+# Exit codes: 0 the scan worked (clean or matches), 1 it failed. The Uptime
+# Kuma push call of the "yara" job runs after this script and reports the same.
+set -u
+export LC_ALL=C
+
+LOG_DIR={{ yara_log_dir | quote }}
+NOTIFY_CLEAN={{ yara_notify_clean | bool | string | lower | quote }}
+LABEL={{ notify_host_label | quote }}
+REPORT_FILE="${LOG_DIR}/last-report"
+HOST=$(hostname)
+
+send() {
+    /usr/local/sbin/notify-telegram "$1" || echo "yara-report: Telegram message not sent" >&2
+    printf '%s\n' "$1"
+}
+
+result=$(systemctl show --property=Result --value yara-scan.service)
+status=$(systemctl show --property=ExecMainStatus --value yara-scan.service)
+
+if [ "$result" = "success" ]; then
+    if [ "$status" = "1" ] && [ -s "$REPORT_FILE" ]; then
+        send "$(cat "$REPORT_FILE")"
+    elif [ "$status" = "0" ] && [ "$NOTIFY_CLEAN" = "true" ] && [ -s "$REPORT_FILE" ]; then
+        send "$(cat "$REPORT_FILE")"
+    fi
+    exit 0
+fi
+
+# The scan failed: its own message if it wrote one, otherwise what systemd
+# saw (killed, a timeout, a sandbox denial) and the end of its journal.
+if [ -s "$REPORT_FILE" ]; then
+    send "$(cat "$REPORT_FILE")"
+else
+    send "❌ YARA: SCAN ERROR
+
+${LABEL}: ${HOST}
+yara-scan.service ended with: ${result} (status ${status:-?}).
+
+$(journalctl -u yara-scan.service -n 10 --no-pager -o cat 2>/dev/null)
+
+Details: journalctl -u yara-scan.service"
+fi
+exit 1
