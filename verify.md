@@ -92,6 +92,10 @@ In `mkdir -p ~/progetti/prova && cd ~/progetti/prova && claude`, ask Claude to r
 
 Then `/permissions`: the deny rules include `Bash(ssh *)`, `Bash(sudo *)`, `Bash(git push *)` and the `Read(~/.ssh/**)` family; `/status` lists the managed settings among the sources; Shift+Tab must not offer auto or bypass mode.
 
+A secret inside the project folder: as `v`, `echo 'SECRET=fake' > ~/progetti/prova/.env`, then ask Claude to read `.env` with its read tool (refused by the permissions), and to run `cat .env` (in the sandbox the file is replaced by an empty device: "Permission denied"). Remove it yourself afterwards: `rm ~/progetti/prova/.env` (Claude cannot: in the sandbox it is not the real file). Checked on the VM.
+
+`/status` lists these diagnostics, all expected: "Native installation exists but ~/.local/bin is not in your PATH", "config install method is 'not set'", "claude command at ~/.local/bin/claude missing or broken" (Claude Code expects its own installer's layout; here it is installed by root in `/opt`, with updates off), and "Glob patterns in sandbox permission rules are not fully supported on Linux" (see the walkthrough, "Known limits"). It must **not** list "Found invalid entries in /etc/claude-code/managed-settings.json".
+
 Asking Claude to run `ssh` to another account or `sudo` is not a useful test: Claude declines by itself before the rules are reached, and the request can trip the model's safety classifier ("safeguards flagged this session"). Check those rules with `/permissions` instead.
 
 ## 7. Notifications

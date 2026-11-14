@@ -584,6 +584,8 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 ## 16. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
+- **Pattern rules in the sandbox.** Claude Code warns that "glob patterns in sandbox permission rules are not fully supported on Linux". On the VM, `Read(**/.env)` did apply to a sandboxed `cat .env`: the sandbox replaces the matching files with an empty device when the command starts. A file created by the same command, after it started, is not covered. Keep secrets out of project folders anyway.
+- **Install diagnostics.** `/status` reports that `~/.local/bin` is not on the PATH and that the install method is not set: Claude Code expects its own installer's layout. Expected here, and harmless with updates off.
 - **Built-in tools outside the sandbox.** WebFetch and web search run in Claude Code's own process, not in bubblewrap: the domain allowlist does not limit them. They are governed by the permission prompts, which come to you.
 - **Universe and Zorin's repository.** Ubuntu's `main` has security support from Canonical, universe does not. Zorin's own repository is trusted as a whole. The roles avoid universe for anything security-relevant.
 - **Captive portals** need an `http://` page opened by hand (connectivity check off).
