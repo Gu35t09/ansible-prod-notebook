@@ -495,7 +495,7 @@ The scan is therefore split in two units:
 | `yara-scan.service` | `/usr/local/sbin/yara-scan`: compiles the rules, scans files and process memory, writes the log and `<log dir>/last-report` (the message to send) | none | `/var/log/yara` and a private `/run/yara-scan` |
 | `yara-report.service` | `/usr/local/sbin/yara-report`: reads the scan's result from systemd (`Result`, `ExecMainStatus`) and `last-report`, sends it to Telegram | yes | nothing it needs |
 
-`yara-scan.service` has `OnSuccess=` and `OnFailure=yara-report.service`: whatever happens to the scan (clean, matches, an error, killed), the report runs. The sandbox of the scan, option by option:
+`yara-scan.service` has `OnSuccess=` and `OnFailure=yara-report.service`: whatever happens to the scan (clean, matches, an error, killed), the report runs. Because the report is linked twice to the same unit, systemd logs "multiple trigger source candidates for exit status propagation" and does not set the `MONITOR_*` variables: harmless, since `yara-report` reads the scan's result with `systemctl show --property=Result,ExecMainStatus`. The sandbox of the scan, option by option:
 
 | Option | Effect |
 | --- | --- |

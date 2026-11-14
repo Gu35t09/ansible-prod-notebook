@@ -202,4 +202,6 @@ sudo sh -c 'cat "$(ls -t /var/log/yara/scan_*.log | head -n 1)"' | grep -v '^err
 rm -f /tmp/eicar.com
 ```
 
-Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram, sent by `yara-report.service` (`journalctl -u yara-report.service -n 20 -o cat` shows it). If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.
+Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram, sent by `yara-report.service` (`journalctl -u yara-report.service -n 20 -o cat` shows it; it starts a moment after the scan ends, so wait a few seconds).
+
+The journal of the scan also shows `yara-report.service: multiple trigger source candidates for exit status propagation`: harmless. The report is linked to the scan twice (`OnSuccess=` and `OnFailure=`), so systemd does not pass it the `MONITOR_*` variables with the scan's result; the report does not use them, it reads the result with `systemctl show`. Checked on the VM: report sent, `Result=success`. If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.
