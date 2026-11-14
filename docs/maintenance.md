@@ -121,7 +121,7 @@ A "Laptop: …" monitor in Uptime Kuma turned red: its job has not reported, fro
 "⚠️ CLAMAV: MALWARE DETECTED". With `quarantine` (the default) the files are already in `/root/clamav-quarantine`.
 
 1. Read the file names and the signature. Typical harmless cases: the EICAR test file, an archive of security tools you downloaded on purpose.
-2. Where did it come from? A download (`~/Scaricati`), an email attachment, a repository cloned by you or by Claude. As `v`, `ls -la` around the original path; for a repository, `git log` of the file.
+2. Where did it come from? A download (the Downloads folder, `~/Scaricati` or `~/Downloads` depending on the language), an email attachment, a repository cloned by you or by Claude. As `v`, `ls -la` around the original path; for a repository, `git log` of the file.
 3. If you did not expect it, treat `v` as compromised: [Suspected compromise of v](#suspected-compromise-of-v).
 4. If it is a false positive and you need the file back: `sudo mv /root/clamav-quarantine/<file> <original path>` and `sudo chown v:v <original path>`. ClamAV will find it again at the next scan: keep it outside the scanned paths, or accept the daily message.
 5. Once examined, delete it: `sudo rm /root/clamav-quarantine/<file>`.
@@ -175,7 +175,7 @@ If the message says the unit ended with `signal` or `exit-code` and no reason of
 
 ### Disk space low
 
-"⚠️ DISK SPACE LOW": as `v-admin`, `sudo du -xh --max-depth=2 / | sort -h | tail -20`. Usual causes on a laptop: `~/Scaricati`, VM images, Flatpak runtimes (`flatpak uninstall --unused`), the journal (capped at 500 MB), old kernels in `/boot` (`sudo apt autoremove --purge`).
+"⚠️ DISK SPACE LOW": as `v-admin`, `sudo du -xh --max-depth=2 / | sort -h | tail -20`. Usual causes on a laptop: the Downloads folder, VM images, Flatpak runtimes (`flatpak uninstall --unused`), the journal (capped at 500 MB), old kernels in `/boot` (`sudo apt autoremove --purge`).
 
 ### Unattended-upgrades errors or a package list failure
 
@@ -332,6 +332,10 @@ apt-cache policy | grep -E 'o=Ubuntu.*noble-security' | head -2
 ```
 
 The allowed origins must include `origin=Ubuntu,archive=noble-security`, and `apt-cache policy` must show a security source with `o=Ubuntu`. If Zorin changes how its archive is labelled, fix `base_unattended_origins`.
+
+### "D-Bus connection terminated" from systemctl
+
+`Warning! D-Bus connection terminated. Failed to wait for response: Connection reset by peer`, while an upgrade is running: systemd was upgraded and re-executed itself, and every `systemctl` waiting for an answer lost its connection. The unit it started keeps running. Wait for it with `systemctl is-active <unit>`, then read its journal. Seen on the test VM during the first big unattended upgrade.
 
 ### No Telegram messages
 

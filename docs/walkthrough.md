@@ -179,7 +179,9 @@ Writes `/etc/apt/apt.conf.d/52unattended-upgrades-local`, read after the stock `
 Check: `sudo unattended-upgrade --dry-run -d 2>&1 | grep -i 'allowed origins'`.
 
 **Let needrestart restart services after upgrades**
-`$nrconf{restart} = 'a'` in `/etc/needrestart/conf.d/50-auto.conf`. The interactive default does nothing in an unattended upgrade, so services would keep running old, vulnerable libraries until a reboot. needrestart never restarts the display manager (its default override list), so the desktop session stays up; the kernel is updated only by a reboot.
+`$nrconf{restart} = 'a'` in `/etc/needrestart/conf.d/50-auto.conf`. The interactive default does nothing in an unattended upgrade, so services would keep running old, vulnerable libraries until a reboot. needrestart never restarts what would end the session or drop the network: on the test VM, after an upgrade of `libc6`, `gnome-shell` and `apparmor`, it listed `gdm`, `dbus`, `systemd-logind`, `NetworkManager` and `wpa_supplicant` under "Service restarts being deferred", and the sessions under "User sessions running outdated binaries", restarting neither. They pick up the new libraries at the next login or reboot, which the Telegram report asks for. The kernel is updated only by a reboot.
+
+This is also why `noble-updates` (GNOME, gdm, NetworkManager updates) stays among the automatic origins on a desktop: the running session is not restarted under you.
 
 **Install the unattended-upgrades report** / **Create the drop-in directories of the apt jobs** / **Report after each apt job**
 `/usr/local/sbin/unattended-upgrades-report`, called by systemd through `ExecStopPost=` drop-ins (`/etc/systemd/system/apt-daily{,-upgrade}.service.d/50-telegram.conf`). Ported from ansible-prod-srv without the rootless Docker part. Handler: **Reload systemd**.
@@ -596,7 +598,8 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **Shared Telegram bot.** The laptop holds the server's bot token (root only). Losing the laptop means rotating it for the server and Uptime Kuma too.
 - **Monitoring is weaker than the server's.** Uptime Kuma sees the laptop only at home, and the 7-day heartbeat catches a job that stopped, not a job that failed today (Telegram does that).
 - **Scans match what you keep.** Documentation or Claude transcripts that quote malware strings can match YARA or ClamAV. The repositories' own rule files are excluded; anything else is reported, and judged by you (maintenance guide, "YARA match").
-- **To confirm on the VM** (written, not yet run): how Ansible names Zorin in its facts; whether purging the reporting packages removes a Zorin metapackage; that the explicit origins match in `unattended-upgrade --dry-run`; that the binary works from `/opt` with updates disabled; that Zorin uses `systemd-timesyncd` (the NTP check expects it); the integrity check's first findings on a desktop; every check in `verify.md`.
+- **SMART** was not tested: the VM has no physical disk. Check `verify.md` section 10 on the laptop itself.
+- **The first unattended upgrade** after an install is large (about 400 packages on the VM) and runs while you work: expect a slower laptop for half an hour, and a reboot request at the end.
 
 ## 17. How it was tested
 
@@ -611,6 +614,8 @@ On the development laptop (Fedora 44, ansible-core 2.20.7):
 - the `find` exclusion patterns of the scans on a sample tree (caches, trash, Flatpak cache, vendored rules pruned; downloads and app data kept);
 - the `fileglob` lookup of the YARA rules: 275 files, the same count as on disk.
 
-On the Zorin 18 test VM, before the roles were written: podman, passt and podman-compose versions and origins (why agent-box was dropped); bubblewrap's origin; the nested-namespace failure, its AppArmor cause, and the fix by unloading the profile; Flatpak still blocking nested namespaces without it; the sandbox working once the profile was gone; auto mode retrying outside the sandbox (why it is disabled).
+On the Zorin 18 test VM, reinstalled with `v-admin` as first user, on 14 November 2026: every section of `verify.md`, from a full run to a run after a reboot with `changed=0`. Found and fixed on the way: `/etc/apparmor.d/disable` missing on Zorin; `cleanupPeriodDays` written as a string and dropped by Claude Code; the claude.ai connectors not covered by `allowManagedMcpServersOnly`; YARA in universe (now sandboxed). Confirmed: Ansible's facts name Zorin and the `noble` release (the pre-task passes); purging the reporting packages removed only `whoopsie`, `kerneloops` and `snapd`, no metapackage; Zorin's stock origins already match Ubuntu's security pocket; the binary runs from `/opt` with updates off; Zorin uses `systemd-timesyncd`; the integrity check finds nothing on a freshly updated desktop; ClamAV, YARA, integrity, disk space and the unattended-upgrades report reach Telegram; the push calls reach Uptime Kuma from home.
+
+On the same VM, before the roles were written: podman, passt and podman-compose versions and origins (why agent-box was dropped); bubblewrap's origin; the nested-namespace failure, its AppArmor cause, and the fix by unloading the profile; Flatpak still blocking nested namespaces without it; the sandbox working once the profile was gone; auto mode retrying outside the sandbox (why it is disabled).
 
 The full run on the VM is the next step: the checklist is in the pull request and in [verify.md](../verify.md).

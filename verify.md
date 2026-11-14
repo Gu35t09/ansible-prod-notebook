@@ -28,6 +28,10 @@ sudo unattended-upgrade --dry-run -d 2>&1 | grep -E 'Allowed origins|Checking|pk
 
 `Allowed origins` must list `origin=Ubuntu,archive=noble-security` and `noble-updates`.
 
+Interrupting the dry run (Ctrl+C) while it downloads leaves an `ERROR fetch.run() ... Method http has died unexpectedly` line in `/var/log/unattended-upgrades/unattended-upgrades.log`. It is not a failed job, and no Telegram message follows: the report runs only after `apt-daily-upgrade.service`.
+
+The first run after a fresh install catches up on everything published since the ISO: on the test VM about 400 packages, 20 minutes of CPU, longer in real time. While it runs, `systemctl` commands may end with "Warning! D-Bus connection terminated" when systemd is upgraded and re-executes itself: the command's job keeps running, wait for it with `systemctl is-active <unit>`.
+
 ## 4. Privacy
 
 ```bash
@@ -143,7 +147,7 @@ Test with the EICAR file, harmless and detected by every antivirus. The string i
 
 ```bash
 # as v
-printf '%s%s\n' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR' '-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > ~/Scaricati/eicar.com
+printf '%s%s\n' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR' '-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > "$(xdg-user-dir DOWNLOAD)/eicar.com"     # ~/Scaricati or ~/Downloads, by language
 # as v-admin
 sudo systemctl start clamav-scan.service
 sudo sh -c 'cat "$(ls -t /var/log/clamav/scan_*.log | head -n 1)"' | grep -E 'FOUND|Files to scan|Infected'
@@ -213,3 +217,19 @@ rm -f /tmp/eicar.com
 Expected: `Multi_EICAR_ac8f42d6 /tmp/eicar.com` and a "YARA: 1 MATCH(ES)" message on Telegram, sent by `yara-report.service` (`journalctl -u yara-report.service -n 20 -o cat` shows it; it starts a moment after the scan ends, so wait a few seconds).
 
 The journal of the scan also shows `yara-report.service: multiple trigger source candidates for exit status propagation`: harmless. The report is linked to the scan twice (`OnSuccess=` and `OnFailure=`), so systemd does not pass it the `MONITOR_*` variables with the scan's result; the report does not use them, it reads the result with `systemctl show`. Checked on the VM: report sent, `Result=success`. If ClamAV's scan runs first, it moves the file to the quarantine, which YARA never scans.
+
+## 13. After a reboot
+
+What the playbook sets up at run time must also hold after a reboot. As `v-admin`, after rebooting:
+
+```bash
+sudo aa-status | grep -E 'bwrap|unpriv_bwrap' || echo "bwrap profile not loaded"
+sudo nft list table inet laptop_filter | head -3
+sysctl kernel.kptr_restrict kernel.apparmor_restrict_unprivileged_userns   # 2 and 0
+systemctl is-active clamav-daemon nftables
+ansible-playbook site.yml -K --ask-vault-pass                               # changed=0
+```
+
+As `v`: `bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-net -- unshare -U -r true && echo "nested OK"` prints `nested OK`: the Claude Code sandbox starts on a fresh boot too.
+
+All checked on the test VM on 14 November 2026.
