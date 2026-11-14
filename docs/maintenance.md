@@ -296,6 +296,10 @@ The wrapper says why:
 - "it is your home", "system directory", "hidden folder": `cd` into a project folder first.
 - "it is not owned by you": the folder belongs to another user; clone it again as `v`.
 
+### /status shows warnings
+
+Expected, and harmless: "~/.local/bin is not in your PATH", "install method is 'not set'", "claude command at ~/.local/bin/claude missing or broken" (Claude Code is installed by root in `/opt`, not by its own installer), and "Glob patterns in sandbox permission rules are not fully supported on Linux". **Not** expected: "Found invalid entries in /etc/claude-code/managed-settings.json": a value failed the schema and was dropped. The role's `validate` should prevent it; if it appears after a Claude Code update, the schema changed: read `claude doctor`, fix the value in `roles/claude_code/defaults/main.yml`, run `--tags claude-code`.
+
 ### Claude says the sandbox is not available
 
 With `failIfUnavailable` it does not start at all. As `v`:

@@ -79,18 +79,26 @@ Flatpak must still block nested namespaces by itself (any installed app):
 flatpak run --command=sh org.gnome.Calculator -c 'unshare -U -r true && echo "flatpak NESTED OK"'   # must FAIL
 ```
 
+At the first start Claude Code must show **no "Settings Warning"** for `/etc/claude-code/managed-settings.json`. A warning means a value failed the schema and was dropped: fix the role, do not just continue.
+
 In `mkdir -p ~/progetti/prova && cd ~/progetti/prova && claude`, ask Claude to run each of these. Every one must fail or ask you, never succeed silently:
 
-| Request | Expected |
+| Request | Expected (as seen on the test VM) |
 | --- | --- |
-| `curl -sI https://example.com` | A prompt for `example.com` (answer no: it fails) |
-| `curl -sI https://github.com` | Works (allowed domain) |
-| `touch ~/fuori.txt` | Fails (read-only outside the project), no retry outside the sandbox |
-| `cat ~/.ssh/config` | Refused (outside the working directory and denied) |
-| `ssh v@10.123.11.11` | Refused (denied rule) |
-| `sudo true` | Refused |
+| `curl -sI https://example.com` | A prompt for `example.com`. Answer no: it fails. Answer yes: it works for this session only |
+| `curl -sI https://github.com` | Works with no prompt (allowed domain) |
+| `touch ~/fuori.txt` | Looks successful inside the sandbox, but the home is a private, throwaway view there: then, as `v` in a terminal, `ls ~/fuori.txt` must say "No such file". No retry outside the sandbox |
+| `cat ~/.ssh/config` | "No such file or directory": the sandbox hides the home, so an existing file and a missing one look the same |
 
-`/status` in Claude shows the managed settings among the sources; `/permissions` shows the deny rules; Shift+Tab must not offer auto or bypass mode.
+`/mcp` must list no server: the claude.ai connectors are disabled.
+
+Then `/permissions`: the deny rules include `Bash(ssh *)`, `Bash(sudo *)`, `Bash(git push *)` and the `Read(~/.ssh/**)` family; `/status` lists the managed settings among the sources; Shift+Tab must not offer auto or bypass mode.
+
+A secret inside the project folder: as `v`, `echo 'SECRET=fake' > ~/progetti/prova/.env`, then ask Claude to read `.env` with its read tool (refused by the permissions), and to run `cat .env` (in the sandbox the file is replaced by an empty device: "Permission denied"). Remove it yourself afterwards: `rm ~/progetti/prova/.env` (Claude cannot: in the sandbox it is not the real file). Checked on the VM.
+
+`/status` lists these diagnostics, all expected: "Native installation exists but ~/.local/bin is not in your PATH", "config install method is 'not set'", "claude command at ~/.local/bin/claude missing or broken" (Claude Code expects its own installer's layout; here it is installed by root in `/opt`, with updates off), and "Glob patterns in sandbox permission rules are not fully supported on Linux" (see the walkthrough, "Known limits"). It must **not** list "Found invalid entries in /etc/claude-code/managed-settings.json".
+
+Asking Claude to run `ssh` to another account or `sudo` is not a useful test: Claude declines by itself before the rules are reached, and the request can trip the model's safety classifier ("safeguards flagged this session"). Check those rules with `/permissions` instead.
 
 ## 7. Notifications
 

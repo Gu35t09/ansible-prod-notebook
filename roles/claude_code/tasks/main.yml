@@ -221,14 +221,30 @@
 
 # Claude Code reads this file on Linux and gives it precedence over user,
 # project and command-line settings. The content and the reasons are in
-# defaults/main.yml (claude_code_managed_settings).
+# defaults/main.yml (claude_code_managed_settings). The number and the list
+# are merged here, inside one expression, so they keep their types whatever
+# the Ansible version; validate refuses a file whose types are wrong, because
+# Claude Code would silently drop those values.
 - name: Write the managed settings (the user cannot override them)
   ansible.builtin.copy:
     dest: /etc/claude-code/managed-settings.json
-    content: "{{ claude_code_managed_settings | to_nice_json(indent=2) }}\n"
+    content: >-
+      {{ claude_code_managed_settings
+         | combine({'cleanupPeriodDays': claude_code_cleanup_days | int,
+                    'sandbox': {'network': {'allowedDomains': claude_code_sandbox_allowed_domains}}},
+                   recursive=True)
+         | to_nice_json(indent=2) }}
     owner: root
     group: root
     mode: "0644"
+    validate: >-
+      /usr/bin/python3 -c "import json, sys;
+      d = json.load(open(sys.argv[1]));
+      assert type(d['cleanupPeriodDays']) is int and d['cleanupPeriodDays'] >= 1, 'cleanupPeriodDays';
+      assert all(type(x) is str for x in d['sandbox']['network']['allowedDomains']), 'allowedDomains';
+      assert all(type(d['sandbox'][k]) is bool for k in ('enabled', 'failIfUnavailable', 'allowUnsandboxedCommands')), 'sandbox flags';
+      assert d.get('disableClaudeAiConnectors') is True, 'disableClaudeAiConnectors'"
+      %s
 
 # --- No user-level install shadowing this one --------------------------------
 

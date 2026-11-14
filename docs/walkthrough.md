@@ -171,7 +171,7 @@ Writes `/etc/apt/apt.conf.d/21auto-upgrades-local`. APT reads that directory in 
 **Configure what unattended-upgrades installs**
 Writes `/etc/apt/apt.conf.d/52unattended-upgrades-local`, read after the stock `50unattended-upgrades`.
 
-- **Origins.** The stock file allows `${distro_id}:${distro_codename}-security`, where `distro_id` comes from `lsb_release -i`. On Zorin that is "Zorin", while the Ubuntu archive's packages have origin "Ubuntu": the stock pattern may match nothing, and no security update would be installed by itself. The role adds the origins by name (`base_unattended_origins`): `origin=Ubuntu,archive=noble-security` and `noble-updates`. The lists add up: whatever the stock file allows still applies.
+- **Origins.** The role adds `base_unattended_origins` to the stock list: `origin=Ubuntu,archive=noble-security` and `noble-updates` (bug fixes, as on the server, which Ubuntu does not install by itself). The lists add up. On the test VM the stock list of Zorin 18 already allowed `o=Ubuntu,a=noble-security`, so security updates were covered before the role too; the role names it anyway, so that a change to Zorin's file cannot silently stop them.
 - **Not included**: Zorin's own repository and the Flatpak apps. Zorin's packages arrive through GNOME Software (with the admin password); Flatpak apps update from GNOME Software too.
 - `Automatic-Reboot "false"`: the laptop never reboots by itself. GNOME shows when a reboot is needed.
 - `Remove-Unused-Kernel-Packages`, `Remove-New-Unused-Dependencies`: old kernels and the dependencies an upgrade left behind are removed, so `/boot` does not fill up.
@@ -371,7 +371,9 @@ After an update only the pinned version stays in `/opt/claude-code`.
 ### Managed settings
 
 **Create the managed settings directory** / **Write the managed settings**
-`/etc/claude-code/managed-settings.json`, root-owned, mode 0644. Claude Code reads it on Linux and gives it precedence over the user's, the project's and the command line's settings. The content is `claude_code_managed_settings` in `defaults/main.yml`; key by key:
+`/etc/claude-code/managed-settings.json`, root-owned, mode 0644. Claude Code reads it on Linux and gives it precedence over the user's, the project's and the command line's settings. The content is `claude_code_managed_settings` in `defaults/main.yml`, with two values merged in by the task: `cleanupPeriodDays` (from `claude_code_cleanup_days`) and `sandbox.network.allowedDomains` (from `claude_code_sandbox_allowed_domains`). They are merged inside the single expression that writes the file, so they keep their types: written as `"{{ ... }}"` inside the dictionary, the number came out as the string `"30"` on the test VM, and Claude Code showed "cleanupPeriodDays: Failed schema validation. This field was ignored." A value that fails the schema is dropped while the rest of the file applies: for a security setting that would fail silently. The task's `validate` therefore checks the types (the number, the list of domains, the sandbox switches) before the file replaces the old one.
+
+Key by key:
 
 | Key | Value | Effect |
 | --- | --- | --- |
@@ -383,6 +385,7 @@ After an update only the pinned version stays in `/opt/claude-code`.
 | `allowManagedPermissionRulesOnly` | `true` | Only the rules in this file count: a repository's `.claude/settings.json`, the user's settings and the "always allow" answers cannot add rules. Every prompt is asked again in each session |
 | `allowManagedHooksOnly` | `true` | No hooks from a project or the user: a cloned repository cannot run commands at Claude's events |
 | `allowManagedMcpServersOnly` | `true` | No MCP servers, since none is defined here |
+| `disableClaudeAiConnectors` | `true` | No claude.ai connectors (Google Drive, Claude Docs). They come with the account login, so the key above does not stop them: on the test VM `/mcp` listed both. They would let Claude Code, in any project, read the cloud documents and write outside the laptop, past the sandbox and the domain list. They stay available on claude.ai in the browser |
 | `cleanupPeriodDays` | 30 | Transcripts in `~/.claude` are deleted after 30 days |
 | `sandbox.enabled` | `true` | Every shell command runs in bubblewrap |
 | `sandbox.failIfUnavailable` | `true` | Claude does not start if the sandbox cannot |
@@ -582,6 +585,8 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 ## 16. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
+- **Pattern rules in the sandbox.** Claude Code warns that "glob patterns in sandbox permission rules are not fully supported on Linux". On the VM, `Read(**/.env)` did apply to a sandboxed `cat .env`: the sandbox replaces the matching files with an empty device when the command starts. A file created by the same command, after it started, is not covered. Keep secrets out of project folders anyway.
+- **Install diagnostics.** `/status` reports that `~/.local/bin` is not on the PATH and that the install method is not set: Claude Code expects its own installer's layout. Expected here, and harmless with updates off.
 - **Built-in tools outside the sandbox.** WebFetch and web search run in Claude Code's own process, not in bubblewrap: the domain allowlist does not limit them. They are governed by the permission prompts, which come to you.
 - **Universe and Zorin's repository.** Ubuntu's `main` has security support from Canonical, universe does not. Zorin's own repository is trusted as a whole. The roles avoid universe for anything security-relevant.
 - **Captive portals** need an `http://` page opened by hand (connectivity check off).

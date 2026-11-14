@@ -58,7 +58,7 @@ The YARA rules are in `roles/yara/files/rules` (Elastic License 2.0 and BSD 2-Cl
 | Role | What it does |
 | --- | --- |
 | `notify` | `/usr/local/sbin/notify-telegram` (the same bot and chat as the server; the token only in `/etc/homelab/notify.env`, root 0600) and `notify-push`, called by systemd when each job ends to tell its Uptime Kuma push monitor. Every message names the laptop (`💻 Laptop`). |
-| `base` | Base packages; unattended-upgrades every day for Ubuntu's security and update pockets (origins named explicitly, since Zorin reports itself as "Zorin"), never rebooting; needrestart restarts services; a Telegram message after every unattended-upgrades run (upgraded, nothing to install, errors, reboot needed) and when the package lists fail; journal capped at 500 MB. |
+| `base` | Base packages; unattended-upgrades every day for Ubuntu's security and update pockets, never rebooting; needrestart restarts services; a Telegram message after every unattended-upgrades run (upgraded, nothing to install, errors, reboot needed) and when the package lists fail; journal capped at 500 MB. |
 | `users` | Creates `v` with no supplementary group and checks that it has no sudo, admin, adm or lpadmin and that `sudo -l` grants it nothing; checks that `v-admin` is in `sudo`; homes in mode 0700. The password of `v` is set by hand once (`sudo passwd v`). |
 | `privacy` | Purges `zorin-os-census`, apport, whoopsie, kerneloops, ubuntu-report, popularity-contest and snapd, and pins them at priority -10 so they never come back. Turns off the login news (motd-news) and NetworkManager's connectivity check (captive portals then need an `http://` page opened by hand). |
 | `hardening` | nftables: inbound denied except replies, loopback and IPv6 neighbour discovery; only its own table is replaced. Kernel and network sysctl hardening. No SSH server. |
@@ -74,7 +74,7 @@ Every timer is `Persistent=true`: a job missed while the laptop was off runs at 
 
 The file is in `/etc/claude-code/`, owned by root: neither the user, nor a project's `.claude/settings.json`, nor Claude itself can change it.
 
-- **Always ask.** No auto mode, no bypass mode. Only the managed rules count (`allowManagedPermissionRulesOnly`): an "always allow" answer or a cloned repository cannot add rules, hooks or MCP servers.
+- **Always ask.** No auto mode, no bypass mode. Only the managed rules count (`allowManagedPermissionRulesOnly`): an "always allow" answer or a cloned repository cannot add rules, hooks or MCP servers. The claude.ai connectors (Google Drive, Claude Docs), which come with the account login, are off (`disableClaudeAiConnectors`).
 - **Sandbox, failing closed.** Every shell command runs in bubblewrap: it writes only in the working directory and reaches only the allowed domains (`github.com`); anything else is asked. Claude does not start if the sandbox cannot (`failIfUnavailable`) and never retries a command outside it (`allowUnsandboxedCommands: false`).
 - **Reads only in the working directory** (`blockReadsOutsideWorkingDirectories`), plus deny rules for the secrets (`~/.ssh`, keyrings, browser profiles, `vault.yml`, `.env`) in case Claude is started in the wrong place.
 - **No production.** `ssh`, `ansible-playbook`, `ansible-vault`, `git push`, `sudo` are denied. The prefix rules are a speed bump; the barriers are the sandbox network (no route to the servers), sudo's password and the YubiKey's PIN and touch.

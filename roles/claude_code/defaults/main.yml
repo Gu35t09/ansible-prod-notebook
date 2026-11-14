@@ -57,7 +57,7 @@ claude_code_refused_groups: [sudo, admin, wheel, adm]
 claude_code_sandbox_allowed_domains:
   - "github.com"
 
-# Days of transcripts kept in ~/.claude.
+# Days of transcripts kept in ~/.claude (an integer, at least 1).
 claude_code_cleanup_days: 30
 
 # /etc/claude-code/managed-settings.json. Keys: https://code.claude.com/docs/en/settings
@@ -113,7 +113,17 @@ claude_code_managed_settings:
   allowManagedPermissionRulesOnly: true
   allowManagedHooksOnly: true
   allowManagedMcpServersOnly: true
-  cleanupPeriodDays: "{{ claude_code_cleanup_days | int }}"
+  # The claude.ai connectors (Google Drive, Claude Docs) come with the account
+  # login, not from a local configuration, so the line above does not stop
+  # them (seen on the test VM). They would give Claude Code, in any project,
+  # read access to the cloud documents and a way to write outside the laptop
+  # that bypasses the sandbox. Off here; still available on claude.ai.
+  disableClaudeAiConnectors: true
+  # cleanupPeriodDays (claude_code_cleanup_days) and the sandbox's
+  # allowedDomains (claude_code_sandbox_allowed_domains) are added by the task
+  # that writes the file: templated here, they could end up as strings, and
+  # Claude Code drops a value that fails its schema (found on the test VM:
+  # "cleanupPeriodDays": "30").
   sandbox:
     enabled: true
     # Fail closed: no start without the sandbox, no retry outside it.
@@ -123,8 +133,7 @@ claude_code_managed_settings:
     # Sandboxed commands run without asking: they write only in the working
     # directory and reach only the allowed domains.
     autoAllowBashIfSandboxed: true
-    network:
-      allowedDomains: "{{ claude_code_sandbox_allowed_domains }}"
+    network: {}
   env:
     # No telemetry, error reports, feedback, update checks or auto-updates:
     # updates come only from this role.

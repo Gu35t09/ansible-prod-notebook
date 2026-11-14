@@ -10,9 +10,10 @@ base_packages:
   - needrestart
   - fwupd
 
-# What unattended-upgrades installs every day. Zorin reports itself as "Zorin"
-# to lsb_release, so the stock "${distro_id}:${distro_codename}-security"
-# patterns may not match the Ubuntu archive: name the origins explicitly.
+# What unattended-upgrades installs every day, added to the stock origins.
+# On Zorin 18 the stock ones already include o=Ubuntu,a=noble-security
+# (checked on the test VM); the list adds noble-updates (bug fixes, as on the
+# server) and keeps security named explicitly in case Zorin changes its file.
 # Check what matches with: sudo unattended-upgrade --dry-run -d
 base_unattended_origins:
   - "origin=Ubuntu,archive=noble-security"
