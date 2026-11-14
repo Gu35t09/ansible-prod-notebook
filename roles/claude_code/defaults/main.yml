@@ -90,7 +90,11 @@ claude_code_managed_settings:
       - "Edit(~/.local/bin/**)"
       - "Edit(~/.local/share/applications/**)"
       - "Edit(~/.ssh/**)"
-      - "Edit(~/.claude/**)"
+      # Claude's own configuration. Its memory (~/.claude/projects/*/memory)
+      # stays writable.
+      - "Edit(~/.claude/settings.json)"
+      - "Edit(~/.claude/settings.local.json)"
+      - "Edit(~/.claude.json)"
       # Production and privileges: the playbooks and pushes are run by hand.
       # Prefix rules are a speed bump; the real barriers are the sandbox
       # network (no route to the servers), sudo's password and the YubiKey.

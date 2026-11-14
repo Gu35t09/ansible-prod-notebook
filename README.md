@@ -33,6 +33,9 @@ Day to day: Claude writes in `v`, you review and push the branch; after the merg
 │   ├── hardening/                    # nftables inbound deny, sysctl, no sshd
 │   └── claude_code/                  # signed pinned binary, wrapper, managed settings, sandbox
 ├── scripts/bootstrap.sh              # Ansible in a venv on a fresh install
+├── docs/
+│   ├── walkthrough.md                # every task: what it does, why, how to check it
+│   └── maintenance.md                # calendar, procedures, troubleshooting, recovery
 └── verify.md                         # commands to check each part
 ```
 
@@ -84,6 +87,14 @@ Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`
    The run creates `v`; set its password: `sudo passwd v`.
 5. Log out, log in as `v`. Claude Code: `cd` into a project and run `claude`; log in with the subscription (the browser opens claude.ai). On claude.ai, *Settings → Privacy*: choose whether conversations may be used to improve the models.
 6. Check everything with [verify.md](verify.md).
+
+## Documentation
+
+[docs/walkthrough.md](docs/walkthrough.md) explains every role task by task: what it does, why, and how to check it.
+
+[docs/maintenance.md](docs/maintenance.md) is the maintenance guide: calendar, running the playbook, routine procedures (updating Claude Code, allowing a domain, elevating to `v-admin`), troubleshooting and recovery.
+
+[verify.md](verify.md) lists the commands to check each part.
 
 ## Tags
 

@@ -6,6 +6,7 @@
     name: nftables
     state: reloaded
 
+# Applies every file in /etc/sysctl.d, in order, without a reboot.
 - name: Apply sysctl
   ansible.builtin.command: sysctl --system
   changed_when: true

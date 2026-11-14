@@ -1,4 +1,8 @@
 ---
+# ==============================================================================
+# Role hardening: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# ==============================================================================
+
 # Inbound: everything denied except replies, loopback and what IPv6 needs.
 # Add a port here only for a service you run on purpose (none by default).
 hardening_inbound_tcp_ports: []

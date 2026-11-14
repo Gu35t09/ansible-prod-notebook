@@ -1,4 +1,8 @@
 ---
+# ==============================================================================
+# Role privacy: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# ==============================================================================
+
 # Packages that report to Zorin or Canonical. They are purged, and an APT pin
 # keeps them from coming back as a dependency or a recommendation.
 #   zorin-os-census     daily ping with an installation ID

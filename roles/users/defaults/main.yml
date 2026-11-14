@@ -1,4 +1,9 @@
 ---
+# ==============================================================================
+# Role users: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# The two user names are site settings, in group_vars.
+# ==============================================================================
+
 # Supplementary groups of the everyday user. None by default: the desktop
 # grants devices (sound, camera, USB keys) to the active session through
 # logind. Never sudo, admin, adm (logs) or lpadmin (printers).

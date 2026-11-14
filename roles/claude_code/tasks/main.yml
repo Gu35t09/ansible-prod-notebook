@@ -1,6 +1,17 @@
 ---
+# ==============================================================================
+# Role: claude_code
+# Claude Code at a pinned version, installed by root and verified against
+# Anthropic's signed release manifest; a wrapper that keeps it out of admin
+# accounts and system directories; managed settings that nothing in user space
+# can override; what the sandbox needs on Zorin.
+# Walkthrough: docs/walkthrough.md, "Role: claude_code".
+# ==============================================================================
+
 # --- Sandbox prerequisites ---------------------------------------------------
 
+# bubblewrap isolates every shell command, socat carries its traffic to the
+# sandbox proxy; gpg and gpgv verify the release manifest. All four in main.
 - name: Install the sandbox tools and gpgv
   ansible.builtin.apt:
     name: [bubblewrap, socat, gpg, gpgv]
@@ -11,6 +22,8 @@
     path: "{{ claude_code_bwrap_profile }}"
   register: claude_code_profile
 
+# A link in /etc/apparmor.d/disable/ is AppArmor's own way to turn a profile
+# off: the file of the package stays untouched and upgrades respect the link.
 - name: Disable Zorin's bwrap profile (survives package upgrades)
   ansible.builtin.file:
     src: "{{ claude_code_bwrap_profile }}"
@@ -19,6 +32,8 @@
   when: claude_code_disable_bwrap_profile and claude_code_profile.stat.exists
   register: claude_code_profile_link
 
+# The link acts at the next boot; unload the profile now as well. A profile
+# that is not loaded is not an error.
 - name: Unload Zorin's bwrap profile now
   ansible.builtin.command: apparmor_parser -R {{ claude_code_bwrap_profile }}
   when: claude_code_profile_link is changed
@@ -29,6 +44,8 @@
     'does not exist' not in claude_code_unload.stderr and
     "doesn't exist" not in claude_code_unload.stderr
 
+# With Zorin's profile off, bwrap is unconfined, and with this sysctl at 1 it
+# could not create namespaces at all (Ubuntu's default is 1, Zorin's 0).
 - name: Keep unprivileged user namespaces allowed (bwrap needs them)
   ansible.builtin.copy:
     dest: /etc/sysctl.d/60-claude-code-sandbox.conf
@@ -43,6 +60,8 @@
 
 # --- Signed, pinned binary ---------------------------------------------------
 
+# Everything under /opt/claude-code and /usr/local is owned by root: neither
+# the user nor Claude can replace the binary.
 - name: Create the install directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -64,6 +83,9 @@
     mode: "0644"
   register: claude_code_key_file
 
+# The key is vendored in the repository (files/claude-code.asc) and checked
+# against the fingerprint pinned in defaults, published in the setup docs.
+# gpg needs a home directory even to show a key: a temporary one.
 - name: Read the fingerprint of the signing key
   ansible.builtin.shell: |
     set -euo pipefail
@@ -90,6 +112,7 @@
     path: /usr/local/share/claude-code/claude-code.gpg
   register: claude_code_keyring
 
+# gpgv reads a binary keyring, not an armored key. Rebuilt when the key changes.
 - name: Convert the key to a keyring for gpgv
   ansible.builtin.shell: >-
     gpg --dearmor
@@ -113,6 +136,7 @@
         - manifest.json
         - manifest.json.sig
 
+    # gpgv exits non-zero on a bad or missing signature: the play stops here.
     - name: Verify the manifest signature
       ansible.builtin.command: >-
         gpgv --keyring /usr/local/share/claude-code/claude-code.gpg
@@ -129,6 +153,7 @@
       ansible.builtin.set_fact:
         claude_code_manifest: "{{ claude_code_manifest_raw.content | b64decode | from_json }}"
 
+    # A valid signature on another version's manifest must not pass either.
     - name: Check the manifest version and checksum
       ansible.builtin.assert:
         that:
@@ -137,6 +162,8 @@
         fail_msg: "The signed manifest does not describe {{ claude_code_version }} for {{ claude_code_platform }}."
         quiet: true
 
+    # get_url checks the SHA-256 after the download and keeps an existing file
+    # that already matches: a second run downloads nothing.
     - name: Download the binary and check it against the signed checksum
       ansible.builtin.get_url:
         url: "{{ claude_code_download_base }}/{{ claude_code_version }}/{{ claude_code_platform }}/claude"
@@ -146,6 +173,8 @@
         group: root
         mode: "0755"
 
+# /usr/local/bin comes before /usr/bin on the PATH. The wrapper refuses admin
+# accounts and unsafe directories, then runs the pinned binary.
 - name: Install the wrapper as the only claude on the PATH
   ansible.builtin.template:
     src: claude-wrapper.sh.j2
@@ -154,6 +183,7 @@
     group: root
     mode: "0755"
 
+# After an update only the pinned version is kept.
 - name: Find older versions
   ansible.builtin.find:
     paths: "{{ claude_code_install_dir }}"
@@ -179,6 +209,9 @@
     group: root
     mode: "0755"
 
+# Claude Code reads this file on Linux and gives it precedence over user,
+# project and command-line settings. The content and the reasons are in
+# defaults/main.yml (claude_code_managed_settings).
 - name: Write the managed settings (the user cannot override them)
   ansible.builtin.copy:
     dest: /etc/claude-code/managed-settings.json
@@ -189,6 +222,9 @@
 
 # --- No user-level install shadowing this one --------------------------------
 
+# The official installer puts claude in ~/.local/bin, which comes first on the
+# PATH: it would run instead of the wrapper, unpinned and self-updating.
+# fail_key: false, because on a first --check run the user does not exist yet.
 - name: Find the home of the everyday user
   ansible.builtin.getent:
     database: passwd
