@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Sends the result of yara-scan.service to Telegram. Started by systemd when
+# the scan ends (OnSuccess=/OnFailure= in yara-scan.service), never by a timer.
+# The Uptime Kuma push call of the "yara" job is attached to this unit: the
+# scan itself has no network.
+[Unit]
+Description=Telegram report of the YARA scan
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/yara-report

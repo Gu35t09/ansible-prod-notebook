@@ -37,6 +37,7 @@ notify_push_env_file: /etc/homelab/push.env
 notify_push_units:
   unattended_upgrades: apt-daily-upgrade.service
   clamav: clamav-scan.service
-  yara: yara-scan.service
+  # The scan runs with no network: the call goes after its report.
+  yara: yara-report.service
   integrity: integrity-check.service
   disk_space: disk-space-check.service

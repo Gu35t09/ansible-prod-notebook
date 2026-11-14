@@ -66,7 +66,7 @@ The YARA rules are in `roles/yara/files/rules` (Elastic License 2.0 and BSD 2-Cl
 | `clamav` | `clamav-daemon` and `clamav-freshclam`, a daily scan at 12:30 (or at the next boot) of the homes, `/tmp`, `/var/tmp` and `/opt`, caches and Flatpak runtimes left out; quarantine in `/root`; Telegram report. |
 | `monitoring` | smartd with self-tests and temperature alerts (skipped on VMs), disk space check of `/` and `/boot` every 15 minutes with one alert per threshold crossing. |
 | `integrity` | Every 15 minutes: NTP on and synchronized, no SSH server, no setuid/setgid or ownerless files and no shared object outside the packages in the library directories (how Ebury hides), no `/etc/ld.so.preload`, no Ebury socket, nobody but `v-admin` in `sudo` and nothing granted by sudoers to anyone else. Telegram when the findings change, repeated daily while they last. |
-| `yara` | YARA with the same vendored rules as the server (ESET, Elastic). Daily scan at 13:30 (or at the next boot) of binaries, libraries, `/opt`, `/etc`, the homes and temporary directories, plus processes running from temporary places or memory. Reports only. |
+| `yara` | YARA with the same vendored rules as the server (ESET, Elastic). Daily scan at 13:30 (or at the next boot) of binaries, libraries, `/opt`, `/etc`, the homes and temporary directories, plus processes running from temporary places or memory. Reports only. Ubuntu's `yara` is in universe with no security updates, so the scan runs in a systemd sandbox (no network, read-only file system, only the capabilities to read files and process memory); a separate unit sends the report. |
 
 Every timer is `Persistent=true`: a job missed while the laptop was off runs at the next boot, at idle priority.
 
