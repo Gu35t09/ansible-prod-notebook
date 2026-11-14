@@ -1,0 +1,10 @@
+// Managed by Ansible (role base). Loaded after 50unattended-upgrades: the
+// patterns below are added to the stock ones.
+Unattended-Upgrade::Origins-Pattern {
+{% for origin in base_unattended_origins %}
+        "{{ origin }}";
+{% endfor %}
+};
+Unattended-Upgrade::Automatic-Reboot "{{ base_unattended_reboot | ternary('true', 'false') }}";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";

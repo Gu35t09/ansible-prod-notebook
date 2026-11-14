@@ -1,0 +1,13 @@
+---
+# ==============================================================================
+# Site-specific settings for the laptop.
+# Defaults for every other variable live in roles/<role>/defaults/main.yml.
+# ==============================================================================
+
+# Admin user: created by the installer, in the sudo group. It runs this
+# playbook and the server playbook, and holds the SSH access to production.
+# Used only in its own session (Switch User), never through su in a terminal.
+laptop_admin_user: "v-admin"
+
+# Everyday user: no sudo. Browser, documents and Claude Code run here.
+laptop_user: "v"

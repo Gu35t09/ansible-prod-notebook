@@ -1,0 +1,9 @@
+---
+# Supplementary groups of the everyday user. None by default: the desktop
+# grants devices (sound, camera, USB keys) to the active session through
+# logind. Never sudo, admin, adm (logs) or lpadmin (printers).
+users_daily_groups: []
+users_forbidden_groups: [sudo, admin, adm, lpadmin]
+
+# Homes readable only by their owner.
+users_home_mode: "0700"

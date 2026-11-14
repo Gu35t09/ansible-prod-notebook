@@ -1,0 +1,42 @@
+---
+# Inbound: everything denied except replies, loopback and what IPv6 needs.
+# Add a port here only for a service you run on purpose (none by default).
+hardening_inbound_tcp_ports: []
+hardening_inbound_udp_ports: []
+
+# Kernel and network settings, in /etc/sysctl.d/90-hardening.conf.
+hardening_sysctl:
+  # Kernel pointers and the kernel log only for root.
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  # No loading a new kernel at run time, no unprivileged eBPF, hardened JIT.
+  kernel.kexec_load_disabled: 1
+  kernel.unprivileged_bpf_disabled: 1
+  net.core.bpf_jit_harden: 2
+  # A process can debug only its own children.
+  kernel.yama.ptrace_scope: 1
+  # No core dumps of setuid programs; no line disciplines loaded on demand.
+  fs.suid_dumpable: 0
+  dev.tty.ldisc_autoload: 0
+  # Safer links, FIFOs and files in world-writable directories.
+  fs.protected_symlinks: 1
+  fs.protected_hardlinks: 1
+  fs.protected_fifos: 2
+  fs.protected_regular: 2
+  # Network: no redirects, no source routing, reverse path filter, SYN cookies.
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.default.secure_redirects: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.default.accept_source_route: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv6.conf.default.accept_source_route: 0
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.default.rp_filter: 1
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.icmp_echo_ignore_broadcasts: 1

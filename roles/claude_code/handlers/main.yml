@@ -1,0 +1,4 @@
+---
+- name: Apply sysctl for the sandbox
+  ansible.builtin.command: sysctl --system
+  changed_when: true

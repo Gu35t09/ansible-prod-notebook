@@ -1,1 +1,94 @@
 # ansible-prod-notebook
+
+Ansible configuration for the laptop that administers the production homelab: Zorin OS 18 Core (Ubuntu 24.04 base) with Claude Code installed natively and locked down. It follows the conventions of [ansible-prod-srv](https://github.com/Gu35t09/ansible-prod-srv); the design decisions are in [homelab-prod](https://github.com/Gu35t09/homelab-prod).
+
+The laptop is part of production: it runs the server playbook and its YubiKey is the way in as root. The priorities are the same as for the server: privacy, security, simplicity.
+
+## Two users
+
+| User | Groups | What runs there |
+| --- | --- | --- |
+| `v` | none (no sudo) | Everyday work: browser, documents, Claude Code. Working copies of the repositories; you review and push to GitHub. |
+| `v-admin` | `sudo` | This playbook and the server playbook, from copies pulled from GitHub after the merge. SSH to prod-srv-01 with the YubiKey, the vault password typed at every run. |
+
+Claude Code never shares an account with anything that can become root, on the laptop or on the server: the wrapper refuses to start for members of `sudo`, `admin`, `wheel` or `adm`.
+
+**Elevating**: switch to `v-admin` from the login screen (system menu → *Switch User*), never with `su` or `sudo -iu` in a terminal of `v`. A password typed in the session of `v` can be caught by anything that runs there (an alias in `~/.bashrc` is enough), and the YubiKey is given by udev to the user of the active session only, so FIDO2 SSH does not work through `su` anyway. For a single system task from `v` (installing an app, updates in *Software*), GNOME's authentication window asks for the password of `v-admin`: it is drawn by the shell, not by a terminal of `v`.
+
+Day to day: Claude writes in `v`, you review and push the branch; after the merge, *Switch User* to `v-admin`, `git pull`, run the playbook.
+
+## Layout
+
+```text
+.
+├── ansible.cfg
+├── site.yml                          # the only playbook; areas are selected by tag
+├── inventory/
+│   ├── hosts.ini                     # the laptop itself (connection local)
+│   └── group_vars/laptops/main.yml   # site settings: the two users
+├── roles/                            # in the order site.yml runs them
+│   ├── base/                         # packages, unattended-upgrades, journal
+│   ├── users/                        # the everyday user without sudo, private homes
+│   ├── privacy/                      # census, crash reports, snapd, connectivity check
+│   ├── hardening/                    # nftables inbound deny, sysctl, no sshd
+│   └── claude_code/                  # signed pinned binary, wrapper, managed settings, sandbox
+├── scripts/bootstrap.sh              # Ansible in a venv on a fresh install
+└── verify.md                         # commands to check each part
+```
+
+Still to come: `desktop` (the Zorin layout, once chosen on the test VM), `apps` (Flatpak from Flathub), `security_keys` (YubiKey, SSH to prod-srv-01).
+
+## Roles
+
+| Role | What it does |
+| --- | --- |
+| `base` | Base packages; unattended-upgrades every day for Ubuntu's security and update pockets (origins named explicitly, since Zorin reports itself as "Zorin"), never rebooting; journal capped at 500 MB. |
+| `users` | Creates `v` with no supplementary group and checks that it has no sudo, admin, adm or lpadmin and that `sudo -l` grants it nothing; checks that `v-admin` is in `sudo`; homes in mode 0700. The password of `v` is set by hand once (`sudo passwd v`). |
+| `privacy` | Purges `zorin-os-census`, apport, whoopsie, kerneloops, ubuntu-report, popularity-contest and snapd, and pins them at priority -10 so they never come back. Turns off the login news (motd-news) and NetworkManager's connectivity check (captive portals then need an `http://` page opened by hand). |
+| `hardening` | nftables: inbound denied except replies, loopback and IPv6 neighbour discovery; only its own table is replaced. Kernel and network sysctl hardening. No SSH server. |
+| `claude_code` | Claude Code at a pinned version in `/opt/claude-code/<version>`, owned by root: the manifest is checked against Anthropic's release key (fingerprint pinned) and the binary against the signed checksum. `/usr/local/bin/claude` is a wrapper that refuses to start for members of the admin groups, and in `/`, system directories, the home and its hidden folders. `/etc/claude-code/managed-settings.json` (see below). Disables Zorin's AppArmor profile for bwrap, which keeps the sandbox from starting. |
+
+## Claude Code: what the managed settings enforce
+
+The file is in `/etc/claude-code/`, owned by root: neither the user, nor a project's `.claude/settings.json`, nor Claude itself can change it.
+
+- **Always ask.** No auto mode, no bypass mode. Only the managed rules count (`allowManagedPermissionRulesOnly`): an "always allow" answer or a cloned repository cannot add rules, hooks or MCP servers.
+- **Sandbox, failing closed.** Every shell command runs in bubblewrap: it writes only in the working directory and reaches only the allowed domains (`github.com`); anything else is asked. Claude does not start if the sandbox cannot (`failIfUnavailable`) and never retries a command outside it (`allowUnsandboxedCommands: false`).
+- **Reads only in the working directory** (`blockReadsOutsideWorkingDirectories`), plus deny rules for the secrets (`~/.ssh`, keyrings, browser profiles, `vault.yml`, `.env`) in case Claude is started in the wrong place.
+- **No production.** `ssh`, `ansible-playbook`, `ansible-vault`, `git push`, `sudo` are denied. The prefix rules are a speed bump; the barriers are the sandbox network (no route to the servers), sudo's password and the YubiKey's PIN and touch.
+- **No telemetry, error reports, feedback or self-updates.** Updates come only from this repository: change `claude_code_version` and run `--tags claude-code`.
+
+### Why the AppArmor change
+
+Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`): processes started by bwrap lose their capabilities in nested user namespaces, and the Claude Code sandbox fails with `nested userns is capability-restricted`. Flatpak blocks nested namespaces with its own seccomp filter (checked on the test VM: `unshare` fails inside a Flatpak with the profile unloaded), so disabling the profile costs nothing for Flatpak apps. The profile is disabled with a link in `/etc/apparmor.d/disable/`, which package upgrades respect. Unprivileged user namespaces stay allowed, as on Fedora and as Zorin already has it.
+
+### Why not agent-box
+
+[agent-box](https://github.com/morrolinux/agent-box) needs podman 5; Ubuntu 24.04 has podman 4.9, and podman, passt and podman-compose come from universe (passt and podman-compose have had no update since the release). The sandbox of the agent would rest on the least maintained packages of the system.
+
+## First setup
+
+1. Install Zorin OS 18 Core: *Advanced features → LVM and encryption*; decline the census; the user created by the installer is **`v-admin`** (it gets sudo). Log in as `v-admin`.
+2. `snap list`: whatever is listed is removed by the `privacy` role.
+3. Get the repository and Ansible, as `v-admin`:
+   ```bash
+   git clone https://github.com/Gu35t09/ansible-prod-notebook ~/Documents/ansible-prod-notebook
+   cd ~/Documents/ansible-prod-notebook
+   ./scripts/bootstrap.sh
+   ```
+4. Dry run, then the real run:
+   ```bash
+   ansible-playbook site.yml -K --check --diff
+   ansible-playbook site.yml -K
+   ```
+   The run creates `v`; set its password: `sudo passwd v`.
+5. Log out, log in as `v`. Claude Code: `cd` into a project and run `claude`; log in with the subscription (the browser opens claude.ai). On claude.ai, *Settings → Privacy*: choose whether conversations may be used to improve the models.
+6. Check everything with [verify.md](verify.md).
+
+## Tags
+
+| Command | Use |
+| --- | --- |
+| `ansible-playbook site.yml -K` | Full configuration, as `v-admin`. Safe to run again. |
+| `--tags base,users,privacy,hardening,claude-code` | One or more areas. `security` = users + hardening + claude-code. |
+| `--check --diff` | Show what would change. Always first, after any change. |

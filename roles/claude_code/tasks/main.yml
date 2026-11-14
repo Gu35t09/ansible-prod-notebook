@@ -1,0 +1,211 @@
+---
+# --- Sandbox prerequisites ---------------------------------------------------
+
+- name: Install the sandbox tools and gpgv
+  ansible.builtin.apt:
+    name: [bubblewrap, socat, gpg, gpgv]
+    state: present
+
+- name: Look for Zorin's AppArmor profile for bwrap
+  ansible.builtin.stat:
+    path: "{{ claude_code_bwrap_profile }}"
+  register: claude_code_profile
+
+- name: Disable Zorin's bwrap profile (survives package upgrades)
+  ansible.builtin.file:
+    src: "{{ claude_code_bwrap_profile }}"
+    dest: "/etc/apparmor.d/disable/{{ claude_code_bwrap_profile | basename }}"
+    state: link
+  when: claude_code_disable_bwrap_profile and claude_code_profile.stat.exists
+  register: claude_code_profile_link
+
+- name: Unload Zorin's bwrap profile now
+  ansible.builtin.command: apparmor_parser -R {{ claude_code_bwrap_profile }}
+  when: claude_code_profile_link is changed
+  register: claude_code_unload
+  changed_when: claude_code_unload.rc == 0
+  failed_when: >-
+    claude_code_unload.rc != 0 and
+    'does not exist' not in claude_code_unload.stderr and
+    "doesn't exist" not in claude_code_unload.stderr
+
+- name: Keep unprivileged user namespaces allowed (bwrap needs them)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/60-claude-code-sandbox.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role claude_code). Zorin's default, as on Fedora:
+      # bwrap (Flatpak, the Claude Code sandbox) creates user namespaces.
+      kernel.apparmor_restrict_unprivileged_userns = 0
+  notify: Apply sysctl for the sandbox
+
+# --- Signed, pinned binary ---------------------------------------------------
+
+- name: Create the install directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ claude_code_install_dir }}"
+    - "{{ claude_code_install_dir }}/{{ claude_code_version }}"
+    - /usr/local/share/claude-code
+
+- name: Install the release signing key
+  ansible.builtin.copy:
+    src: claude-code.asc
+    dest: /usr/local/share/claude-code/claude-code.asc
+    owner: root
+    group: root
+    mode: "0644"
+  register: claude_code_key_file
+
+- name: Read the fingerprint of the signing key
+  ansible.builtin.shell: |
+    set -euo pipefail
+    home=$(mktemp -d)
+    trap 'rm -rf "$home"' EXIT
+    gpg --batch --homedir "$home" --with-colons --show-keys {{ claude_code_key_src }}
+  args:
+    executable: /bin/bash
+  vars:
+    claude_code_key_src: "{{ role_path }}/files/claude-code.asc"
+  register: claude_code_key
+  changed_when: false
+  check_mode: false
+
+- name: Check the fingerprint of the signing key
+  ansible.builtin.assert:
+    that:
+      - ("fpr:::::::::" ~ claude_code_key_fingerprint ~ ":") in claude_code_key.stdout_lines
+    fail_msg: "files/claude-code.asc is not the key {{ claude_code_key_fingerprint }}."
+    quiet: true
+
+- name: Look for the gpgv keyring
+  ansible.builtin.stat:
+    path: /usr/local/share/claude-code/claude-code.gpg
+  register: claude_code_keyring
+
+- name: Convert the key to a keyring for gpgv
+  ansible.builtin.shell: >-
+    gpg --dearmor
+    < /usr/local/share/claude-code/claude-code.asc
+    > /usr/local/share/claude-code/claude-code.gpg
+  when: claude_code_key_file is changed or not claude_code_keyring.stat.exists
+  changed_when: true
+
+# In check mode nothing is downloaded, so there is nothing to verify yet.
+- name: Download, verify and install the pinned version
+  when: not ansible_check_mode
+  block:
+    - name: Download the release manifest and its signature
+      ansible.builtin.get_url:
+        url: "{{ claude_code_download_base }}/{{ claude_code_version }}/{{ item }}"
+        dest: "{{ claude_code_install_dir }}/{{ claude_code_version }}/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - manifest.json
+        - manifest.json.sig
+
+    - name: Verify the manifest signature
+      ansible.builtin.command: >-
+        gpgv --keyring /usr/local/share/claude-code/claude-code.gpg
+        {{ claude_code_install_dir }}/{{ claude_code_version }}/manifest.json.sig
+        {{ claude_code_install_dir }}/{{ claude_code_version }}/manifest.json
+      changed_when: false
+
+    - name: Read the manifest
+      ansible.builtin.slurp:
+        src: "{{ claude_code_install_dir }}/{{ claude_code_version }}/manifest.json"
+      register: claude_code_manifest_raw
+
+    - name: Parse the manifest
+      ansible.builtin.set_fact:
+        claude_code_manifest: "{{ claude_code_manifest_raw.content | b64decode | from_json }}"
+
+    - name: Check the manifest version and checksum
+      ansible.builtin.assert:
+        that:
+          - claude_code_manifest.version == claude_code_version
+          - claude_code_manifest.platforms[claude_code_platform].checksum is match('^[0-9a-f]{64}$')
+        fail_msg: "The signed manifest does not describe {{ claude_code_version }} for {{ claude_code_platform }}."
+        quiet: true
+
+    - name: Download the binary and check it against the signed checksum
+      ansible.builtin.get_url:
+        url: "{{ claude_code_download_base }}/{{ claude_code_version }}/{{ claude_code_platform }}/claude"
+        dest: "{{ claude_code_install_dir }}/{{ claude_code_version }}/claude"
+        checksum: "sha256:{{ claude_code_manifest.platforms[claude_code_platform].checksum }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+- name: Install the wrapper as the only claude on the PATH
+  ansible.builtin.template:
+    src: claude-wrapper.sh.j2
+    dest: /usr/local/bin/claude
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Find older versions
+  ansible.builtin.find:
+    paths: "{{ claude_code_install_dir }}"
+    file_type: directory
+    excludes: ["{{ claude_code_version }}"]
+  register: claude_code_old
+
+- name: Remove older versions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ claude_code_old.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# --- Managed settings --------------------------------------------------------
+
+- name: Create the managed settings directory
+  ansible.builtin.file:
+    path: /etc/claude-code
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the managed settings (the user cannot override them)
+  ansible.builtin.copy:
+    dest: /etc/claude-code/managed-settings.json
+    content: "{{ claude_code_managed_settings | to_nice_json(indent=2) }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+# --- No user-level install shadowing this one --------------------------------
+
+- name: Find the home of the everyday user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ laptop_user }}"
+    fail_key: false
+
+- name: Look for a user-level install
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['getent_passwd'][laptop_user][4] }}/.local/bin/claude"
+  register: claude_code_user_install
+  when: ansible_facts['getent_passwd'][laptop_user] is not none
+
+- name: Refuse a user-level install, which would come first on the PATH
+  ansible.builtin.assert:
+    that: not (claude_code_user_install.stat.exists | default(false))
+    fail_msg: >-
+      ~{{ laptop_user }}/.local/bin/claude exists (the official installer puts it
+      there) and would run instead of /usr/local/bin/claude. Remove it, as
+      {{ laptop_user }}: rm -f ~/.local/bin/claude && rm -rf ~/.local/share/claude
+    quiet: true

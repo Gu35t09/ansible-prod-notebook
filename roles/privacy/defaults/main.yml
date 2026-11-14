@@ -1,0 +1,25 @@
+---
+# Packages that report to Zorin or Canonical. They are purged, and an APT pin
+# keeps them from coming back as a dependency or a recommendation.
+#   zorin-os-census     daily ping with an installation ID
+#   apport, whoopsie    crash reports to Canonical
+#   kerneloops          kernel oops reports
+#   ubuntu-report       hardware report at first login
+#   popularity-contest  package usage statistics
+privacy_purge_packages:
+  - zorin-os-census
+  - apport
+  - apport-gtk
+  - whoopsie
+  - kerneloops
+  - ubuntu-report
+  - popularity-contest
+
+# Snap: apps come from Flathub only. Purging snapd removes every installed snap:
+# check `snap list` first.
+privacy_remove_snapd: true
+
+# NetworkManager connectivity check (connectivity.zorin-os.com): off. The only
+# cost is that captive portals (hotel Wi-Fi) no longer open a login page by
+# themselves: open any http:// address in the browser instead.
+privacy_disable_connectivity_check: true

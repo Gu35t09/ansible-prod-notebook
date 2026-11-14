@@ -1,0 +1,21 @@
+# --- Secrets: an Ansible Vault password never goes in the repository ---
+.vault_pass
+.vault_pass*
+*.vault_pass
+vault_pass*.txt
+
+# --- Ansible ---
+*.retry
+.ansible/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+*~

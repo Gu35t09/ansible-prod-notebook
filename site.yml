@@ -1,0 +1,53 @@
+---
+# ==============================================================================
+# Laptop: configuration
+# ==============================================================================
+# Full configuration, on the laptop itself:
+#   ansible-playbook site.yml -K
+#
+# Single area:
+#   ansible-playbook site.yml -K --tags claude-code
+#
+# Dry run first after any change:
+#   ansible-playbook site.yml -K --check --diff
+# ==============================================================================
+
+- name: Configure the laptop
+  hosts: laptops
+  gather_facts: true
+
+  pre_tasks:
+    - name: Check that the target runs Zorin OS 18 (Ubuntu 24.04 base)
+      ansible.builtin.assert:
+        that:
+          - "'zorin' in ansible_facts['distribution'] | lower"
+          - ansible_facts['distribution_release'] == 'noble'
+        fail_msg: >-
+          This playbook targets Zorin OS 18 (Ubuntu 24.04 "noble"); the host reports
+          {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+          ({{ ansible_facts['distribution_release'] }}).
+        quiet: true
+      tags: always
+
+    - name: Check that the playbook runs as the admin user
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'USER') == laptop_admin_user
+        fail_msg: >-
+          Run the playbook as {{ laptop_admin_user }}, in its own session
+          (Switch User), not as {{ lookup('ansible.builtin.env', 'USER') }}.
+        quiet: true
+      tags: always
+
+  roles:
+    - role: base
+      tags: [base]
+    - role: users
+      tags: [users, security]
+    - role: privacy
+      tags: [privacy]
+    - role: hardening
+      tags: [hardening, security]
+    - role: claude_code
+      tags: [claude-code, security]
+
