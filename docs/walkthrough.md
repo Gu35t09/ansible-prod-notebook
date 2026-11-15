@@ -542,7 +542,9 @@ Purpose: the macOS cursor, and nothing else: the rest of the desktop stays as Zo
 The theme comes from [ful1e5/apple_cursor](https://github.com/ful1e5/apple_cursor) (GPL-3.0), release `v2.0.1`, archive `macOS.tar.xz`, into `/var/cache/apple-cursor/`. The project publishes no checksum: the SHA-256 in `desktop_cursor_sha256` was computed on the archive downloaded on 15 November 2026, after checking its content (88 Xcursor images, 202 aliases that all point inside the archive, two `index.theme` files and the licence; no executable, no script). Any other file is refused. It is a theme, not a program: nothing in it runs.
 
 **Install the cursor theme**
-`unarchive` into `/usr/share/icons`, only the chosen variant (`include: ./macOS`): the other variant and the archive's `LICENSE` stay out of `/usr/share/icons`. Files owned by root (`--no-same-owner`: the archive carries its author's UID, which on the laptop would be `v-admin`'s). In `/usr/share/icons` the theme is found by GNOME, by Xcursor and by Flatpak apps, which see it as `/run/host/share/icons` (checked on the VM), so it needs no extra Flatpak permission and no copy in each home. Skipped in check mode (nothing was downloaded). A second run changes nothing (tested).
+`unarchive` into `/usr/share/icons`, only the chosen variant (`include: ./macOS`): the other variant and the archive's `LICENSE` stay out of `/usr/share/icons`. Files owned by root (`--no-same-owner`: the archive carries its author's UID, which on the laptop would be `v-admin`'s). In `/usr/share/icons` the theme is found by GNOME and Xcursor: the desktop, native apps, the browser, the terminal and the login screen. Skipped in check mode (nothing was downloaded). A second run changes nothing (tested).
+
+**Flatpak apps** keep their runtime's cursor (Adwaita). They see the name `macOS` through the portal and the theme's files at `/run/host/share/icons`, but their cursor library does not look there. On the VM, setting `XCURSOR_PATH`, `XCURSOR_SIZE` and `XCURSOR_THEME` for all Flatpak apps (`flatpak override --system --env=...`) gave a larger, different cursor, not the macOS one. Left as is: only a few GTK4 Flatpak apps are affected, and the terminal and the browser, which matter here, show the macOS cursor.
 
 **Make the macOS cursor GNOME's default** / **Check the schema overrides**
 `/usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override` sets `cursor-theme` and `cursor-size` (24) in `org.gnome.desktop.interface`. GNOME's defaults come from the compiled schemas.
@@ -621,6 +623,7 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **Shared Telegram bot.** The laptop holds the server's bot token (root only). Losing the laptop means rotating it for the server and Uptime Kuma too.
 - **Monitoring is weaker than the server's.** Uptime Kuma sees the laptop only at home, and the 7-day heartbeat catches a job that stopped, not a job that failed today (Telegram does that).
 - **Scans match what you keep.** Documentation or Claude transcripts that quote malware strings can match YARA or ClamAV. The repositories' own rule files are excluded; anything else is reported, and judged by you (maintenance guide, "YARA match").
+- **Cursor in Flatpak apps**: GTK4 Flatpak apps (the Calculator, for example) keep the Adwaita cursor; see Role: desktop.
 - **SMART** was not tested: the VM has no physical disk. Check `verify.md` section 10 on the laptop itself.
 - **The first unattended upgrade** after an install is large (about 400 packages on the VM) and runs while you work: expect a slower laptop for half an hour, and a reboot request at the end.
 

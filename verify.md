@@ -276,4 +276,4 @@ gsettings get org.gnome.desktop.interface cursor-theme        # 'macOS'
 gsettings get org.gnome.desktop.interface cursor-size         # 24
 ```
 
-The pointer is the macOS arrow, the hand on links is the macOS hand, also inside a Flatpak app (the Calculator) and on the login screen of a new session.
+The pointer is the macOS arrow, and the hand on links is the macOS hand, in the terminal, in the browser and on the login screen of a new session. GTK4 Flatpak apps (the Calculator) keep the Adwaita cursor: expected (walkthrough, Role: desktop).

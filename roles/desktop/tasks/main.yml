@@ -33,10 +33,12 @@
     group: root
     mode: "0644"
 
-# Into /usr/share/icons, where GNOME, Xcursor and Flatpak apps (through
-# /run/host/share/icons) look for themes; owned by root, so neither user can
-# change it. Only the chosen variant: the archive's LICENSE and the other
-# variant are left out. The archive's own owner (its author's UID) is not kept.
+# Into /usr/share/icons, where GNOME and Xcursor look for themes (the
+# desktop, native apps, the browser, the login screen); owned by root, so
+# neither user can change it. Flatpak apps keep their runtime's cursor (see
+# the walkthrough). Only the chosen variant: the archive's LICENSE and the
+# other variant are left out. The archive's own owner (its author's UID) is
+# not kept.
 - name: Install the cursor theme
   ansible.builtin.unarchive:
     src: "{{ desktop_cursor_cache }}/macOS-{{ desktop_cursor_version }}.tar.xz"
