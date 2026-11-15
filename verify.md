@@ -303,4 +303,4 @@ ssh -G prod-srv-01 | grep -E '^(hostname|user|identityagent|hostkeyalias|stricth
 ssh prod-srv-01 hostname                                          # PIN, touch, then the server's name
 ```
 
-No "authenticity of host can't be established" question: the key is pinned. As `v`, `ssh prod-srv-01` must not find any configuration (it tries `prod-srv-01` as a name, as `v`, without the YubiKey).
+No "authenticity of host can't be established" question: the key is pinned. On a VM the YubiKey may not work through USB passthrough (GNOME Boxes hides it; `virsh attach-device` gave `can't set config #1, error -32` in the guest): check this section on the laptop itself. As `v`, `ssh prod-srv-01` must not find any configuration (it tries `prod-srv-01` as a name, as `v`, without the YubiKey).
