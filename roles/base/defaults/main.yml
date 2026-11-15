@@ -18,6 +18,16 @@ base_packages:
 base_unattended_origins:
   - "origin=Ubuntu,archive=noble-security"
   - "origin=Ubuntu,archive=noble-updates"
+  # Brave, the browser, from its own repository: without this line it was
+  # never updated by itself (found on the test VM: 1.89 installed, 1.99 out).
+  - "origin=Brave Software,label=Brave Browser"
+  # Zorin's four Launchpad PPAs: Zorin's own packages and its patched builds
+  # of system packages (gnome-software ...+zorin1). Already trusted for
+  # installing; 54 of their updates were waiting on the VM.
+  - "origin=LP-PPA-zorinos-stable,archive=noble"
+  - "origin=LP-PPA-zorinos-patches,archive=noble"
+  - "origin=LP-PPA-zorinos-apps,archive=noble"
+  - "origin=LP-PPA-zorinos-drivers,archive=noble"
 
 # The laptop never reboots by itself: GNOME shows when a reboot is needed.
 base_unattended_reboot: false

@@ -26,7 +26,7 @@ cat /etc/apt/apt.conf.d/52unattended-upgrades-local
 sudo unattended-upgrade --dry-run -d 2>&1 | grep -E 'Allowed origins|Checking|pkgs that look like'
 ```
 
-`Allowed origins` must list `origin=Ubuntu,archive=noble-security` and `noble-updates`.
+`Allowed origins` must list `origin=Ubuntu,archive=noble-security`, `noble-updates`, `origin=Brave Software,label=Brave Browser` and the four `origin=LP-PPA-zorinos-*`. `apt list --upgradable` must be empty, or empty again after the next daily run: anything that stays there is from an origin unattended-upgrades does not cover.
 
 Interrupting the dry run (Ctrl+C) while it downloads leaves an `ERROR fetch.run() ... Method http has died unexpectedly` line in `/var/log/unattended-upgrades/unattended-upgrades.log`. It is not a failed job, and no Telegram message follows: the report runs only after `apt-daily-upgrade.service`.
 
@@ -277,3 +277,18 @@ gsettings get org.gnome.desktop.interface cursor-size         # 24
 ```
 
 The pointer is the macOS arrow, and the hand on links is the macOS hand, in the terminal, in the browser and on the login screen of a new session. GTK4 Flatpak apps (the Calculator) keep the Adwaita cursor: expected (walkthrough, Role: desktop).
+
+## 15. Applications (apps)
+
+As `v-admin`:
+
+```bash
+dpkg -l evolution remmina zorin-connect gnome-weather libreoffice-core gufw 2>&1 | grep -E '^ii' || echo "none installed"
+dpkg -l gnome-shell nautilus gnome-terminal brave-browser evince eog gnome-text-editor file-roller | grep -c '^ii'   # 8
+flatpak list --app --system                        # empty
+flatpak remotes --system                           # flathub and zorinos (Zorin's GTK themes for Flatpak apps)
+dpkg -l zorin-os-standard zorin-os-desktop | grep -c '^ii'   # 2: the metapackages stay
+apt-mark showauto gnome-shell nautilus             # nothing: both marked as installed by hand
+```
+
+As `v`: the menu shows the terminal, Brave, Files, Settings, Software and the system tools, and none of the removed applications. Opening a PDF or an image from Brave opens the Document or Image Viewer.

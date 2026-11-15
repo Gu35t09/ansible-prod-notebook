@@ -37,6 +37,7 @@ Day to day: Claude writes in `v`, you review and push the branch; after the merg
 │   ├── hardening/                    # nftables inbound deny, sysctl, no sshd
 │   ├── claude_code/                  # signed pinned binary, wrapper, managed settings, sandbox
 │   ├── desktop/                      # the macOS cursor; the rest is Zorin's default
+│   ├── apps/                         # removes the applications the laptop does not need
 │   ├── clamav/                       # daemon, daily scan, quarantine
 │   ├── monitoring/                   # SMART and disk space alerts
 │   ├── integrity/                    # NTP, no sshd, unpackaged libraries, Ebury, admins
@@ -50,7 +51,7 @@ Day to day: Claude writes in `v`, you review and push the branch; after the merg
 └── verify.md                         # commands to check each part
 ```
 
-Still to come: `apps` (Flatpak from Flathub), `security_keys` (YubiKey, SSH to prod-srv-01).
+Still to come: `security_keys` (YubiKey, SSH to prod-srv-01).
 
 The YARA rules are in `roles/yara/files/rules` (Elastic License 2.0 and BSD 2-Clause, see `SOURCES.md` there); the rest of the repository is under the AGPL-3.0 in `LICENSE`.
 
@@ -59,12 +60,13 @@ The YARA rules are in `roles/yara/files/rules` (Elastic License 2.0 and BSD 2-Cl
 | Role | What it does |
 | --- | --- |
 | `notify` | `/usr/local/sbin/notify-telegram` (the same bot and chat as the server; the token only in `/etc/homelab/notify.env`, root 0600) and `notify-push`, called by systemd when each job ends to tell its Uptime Kuma push monitor. Every message names the laptop (`💻 Laptop`). |
-| `base` | Base packages; unattended-upgrades every day for Ubuntu's security and update pockets, never rebooting; needrestart restarts services; a Telegram message after every unattended-upgrades run (upgraded, nothing to install, errors, reboot needed) and when the package lists fail; journal capped at 500 MB. |
+| `base` | Base packages; unattended-upgrades every day for Ubuntu's security and update pockets, Brave and Zorin's own repositories, never rebooting; needrestart restarts services; a Telegram message after every unattended-upgrades run (upgraded, nothing to install, errors, reboot needed) and when the package lists fail; journal capped at 500 MB. |
 | `users` | Creates `v` with no supplementary group and checks that it has no sudo, admin, adm or lpadmin and that `sudo -l` grants it nothing; checks that `v-admin` is in `sudo`; homes in mode 0700. The password of `v` is set by hand once (`sudo passwd v`). |
 | `privacy` | Purges `zorin-os-census`, apport, whoopsie, kerneloops, ubuntu-report, popularity-contest and snapd, and pins them at priority -10 so they never come back. Turns off the login news (motd-news) and NetworkManager's connectivity check (captive portals then need an `http://` page opened by hand). |
 | `hardening` | nftables: inbound denied except replies, loopback and IPv6 neighbour discovery; only its own table is replaced. Kernel and network sysctl hardening. No SSH server. |
 | `claude_code` | Claude Code at a pinned version in `/opt/claude-code/<version>`, owned by root: the manifest is checked against Anthropic's release key (fingerprint pinned) and the binary against the signed checksum. `/usr/local/bin/claude` is a wrapper that refuses to start for members of the admin groups, and in `/`, system directories, the home and its hidden folders. `/etc/claude-code/managed-settings.json` (see below). Disables Zorin's AppArmor profile for bwrap, which keeps the sandbox from starting. |
 | `desktop` | The macOS cursor theme (ful1e5/apple_cursor `v2.0.1`, black, size 24): downloaded at a pinned SHA-256, installed by root in `/usr/share/icons`, made GNOME's default with a schema override, also in Zorin's desktop-specific sections. Flatpak apps keep their own cursor. Everything else on the desktop is Zorin's default. |
+| `apps` | Removes Zorin's applications that are not needed (mail, remote desktop, Zorin Connect, weather, office suite, media, and more: the list and the reasons are in the walkthrough), and the test Calculator. The packages Zorin's metapackages keep installed are marked as installed by hand first, so nothing else can go with them (on Zorin 18 the metapackages only recommend the applications, and stay). Kept: the system tools, the terminal, Brave and four light viewers. |
 | `clamav` | `clamav-daemon` and `clamav-freshclam`, a daily scan at 12:30 (or at the next boot) of the homes, `/tmp`, `/var/tmp` and `/opt`, caches and Flatpak runtimes left out; quarantine in `/root`; Telegram report. |
 | `monitoring` | smartd with self-tests and temperature alerts (skipped on VMs), disk space check of `/` and `/boot` every 15 minutes with one alert per threshold crossing. |
 | `integrity` | Every 15 minutes: NTP on and synchronized, no SSH server, no setuid/setgid or ownerless files and no shared object outside the packages in the library directories (how Ebury hides), no `/etc/ld.so.preload`, no Ebury socket, nobody but `v-admin` in `sudo` and nothing granted by sudoers to anyone else. Telegram when the findings change, repeated daily while they last. |
@@ -140,5 +142,5 @@ Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`
 | Command | Use |
 | --- | --- |
 | `ansible-playbook site.yml -K --ask-vault-pass` | Full configuration, as `v-admin`. Safe to run again. |
-| `--tags base,users,privacy,hardening,claude-code,desktop,clamav,monitoring,integrity,yara` | One or more areas. `security` = users + hardening + claude-code; `detection` = clamav + integrity + yara. |
+| `--tags base,users,privacy,hardening,claude-code,desktop,apps,clamav,monitoring,integrity,yara` | One or more areas. `security` = users + hardening + claude-code; `detection` = clamav + integrity + yara. |
 | `--check --diff` | Show what would change. Always first, after any change. |

@@ -52,6 +52,8 @@
       tags: [claude-code, security]
     - role: desktop
       tags: [desktop]
+    - role: apps
+      tags: [apps]
     # Detection and monitoring. notify runs before base, as its dependency.
     - role: clamav
       tags: [clamav, detection]

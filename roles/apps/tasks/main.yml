@@ -1,0 +1,92 @@
+---
+# ==============================================================================
+# Role: apps
+# Removes the applications the laptop does not need (Debian packages and
+# Flatpak apps) and Zorin's Flatpak remote, without pulling the system down
+# with them: the packages Zorin's metapackages keep installed are marked as
+# installed by hand before anything is removed.
+# Walkthrough: docs/walkthrough.md, "Role: apps".
+# ==============================================================================
+
+# --- Protect what stays --------------------------------------------------------
+
+# The direct dependencies (Depends, Recommends) of the metapackages still
+# installed. After the first run the metapackages are gone and the list is
+# empty: nothing more to protect.
+- name: Read the dependencies of Zorin's metapackages
+  ansible.builtin.shell: |
+    set -o pipefail
+    installed=$(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' {{ apps_metapackages | join(' ') }} 2>/dev/null | awk '$1 == "ii" {print $2}')
+    [ -n "$installed" ] || exit 0
+    apt-cache depends --installed --no-suggests --no-conflicts --no-breaks \
+      --no-replaces --no-enhances $installed \
+      | awk '$1 ~ /^\|?(Depends|Recommends):$/ && $2 !~ /^</ {print $2}' | sort -u
+  args:
+    executable: /bin/bash
+  register: apps_meta_deps
+  changed_when: false
+  check_mode: false
+
+# Every dependency that is not on the removal list (names compared, and
+# "libreoffice*"-style patterns matched).
+- name: Choose the packages to keep
+  ansible.builtin.set_fact:
+    apps_keep: >-
+      {{ apps_meta_deps.stdout_lines
+         | reject('in', apps_remove_packages)
+         | reject('match', '^libreoffice')
+         | list }}
+
+# "manual" means apt never removes them as unused: removing a metapackage
+# cannot take them along. Also in check mode (check_mode: false): the mark is
+# harmless, and without it the dry run of the next task would list the chain
+# of removals this role exists to prevent.
+- name: Mark the packages that stay as installed by hand
+  ansible.builtin.command: apt-mark manual {{ apps_keep | join(' ') }}
+  register: apps_mark
+  # apt-mark prints "X set to manually installed." for a package it changed
+  # and "X was already set to manually installed." otherwise.
+  changed_when: >-
+    apps_mark.stdout_lines | select('search', 'set to manually installed')
+    | reject('search', 'already') | list | length > 0
+  when: apps_keep | length > 0
+  check_mode: false
+
+# --- Remove ---------------------------------------------------------------------
+
+# purge: their configuration goes too. autoremove: the libraries only they
+# used. Run with --check --diff first: apt lists everything it would remove.
+- name: Remove the applications that are not needed
+  ansible.builtin.apt:
+    name: "{{ apps_remove_packages }}"
+    state: absent
+    purge: true
+    autoremove: true
+
+- name: List the Flatpak apps
+  ansible.builtin.command: flatpak list --app --system --columns=application
+  register: apps_flatpaks
+  changed_when: false
+  check_mode: false
+
+- name: Remove the Flatpak apps that are not needed
+  ansible.builtin.command: flatpak uninstall --system --noninteractive {{ item }}
+  loop: "{{ apps_remove_flatpaks | select('in', apps_flatpaks.stdout_lines) | list }}"
+  changed_when: true
+
+# Runtimes no app uses any more (the Calculator's GNOME runtime, ~1 GB).
+- name: Remove unused Flatpak runtimes
+  ansible.builtin.command: flatpak uninstall --system --noninteractive --unused
+  register: apps_unused
+  changed_when: "'Nothing unused to uninstall' not in apps_unused.stdout ~ apps_unused.stderr"
+
+- name: List the Flatpak remotes
+  ansible.builtin.command: flatpak remotes --system --columns=name
+  register: apps_remotes
+  changed_when: false
+  check_mode: false
+
+- name: Remove the Flatpak remotes that are not needed
+  ansible.builtin.command: flatpak remote-delete --system {{ item }}
+  loop: "{{ apps_remove_flatpak_remotes | select('in', apps_remotes.stdout_lines) | list }}"
+  changed_when: true

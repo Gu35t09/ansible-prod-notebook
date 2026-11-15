@@ -1,0 +1,69 @@
+---
+# ==============================================================================
+# Role apps: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# The laptop is used for the terminal and the browser (Brave, Zorin's
+# default): the rest of Zorin's applications are removed, except what the
+# system needs and a few light viewers.
+# ==============================================================================
+
+# Debian packages removed (purged), with what they are. Names, not patterns:
+# a pattern such as "evolution*" would also match evolution-data-server,
+# which gnome-shell needs.
+apps_remove_packages:
+  # Network, privacy, attack surface
+  - evolution                 # mail and calendar client, talks to servers
+  - remmina                   # remote desktop client (RDP, VNC)
+  - remmina-common
+  - remmina-plugin-rdp
+  - remmina-plugin-secret
+  - remmina-plugin-vnc
+  - zorin-connect             # pairing with a phone, listens on the network
+  - webapp-manager            # web sites as apps
+  - gnome-weather             # sends the location for the forecast
+  - gnome-clocks              # world clocks, weather
+  - gnome-calendar
+  - gnome-contacts
+  # Not needed
+  - brasero                   # CD/DVD burning
+  - deja-dup                  # backups (the data of v lives in OpenCloud and GitHub)
+  - rhythmbox                 # music
+  - totem                     # videos
+  - gnome-snapshot            # camera
+  - gnome-sound-recorder
+  - simple-scan               # document scanner
+  - gnome-tour
+  - zorin-os-tour-video
+  - malcontent-gui            # parental controls
+  - zorin-windows-app-support-installation-shortcut
+  - alacarte                  # menu editor
+  - gufw                      # ufw's window: the firewall is nftables, managed here
+  - gnome-calculator
+  - gnome-font-viewer
+  - baobab                    # disk usage analyzer
+  - gnome-power-manager       # power statistics
+  - gnome-logs                # journal viewer (journalctl does it)
+  # LibreOffice: every package of the suite. A pattern is safe here: nothing
+  # outside the suite starts with "libreoffice".
+  - "libreoffice*"
+
+# Flatpak apps removed. The Calculator was installed for the tests on the VM.
+apps_remove_flatpaks:
+  - org.gnome.Calculator
+
+# Flatpak remotes removed. None by default. Zorin's ("zorinos") provides no
+# app, but it does provide the Zorin GTK themes for Flatpak apps (16 refs
+# org.gtk.Gtk3theme.Zorin*, found on the test VM), which Zorin Appearance uses
+# so that Flatpak apps match the desktop theme. Its server is Zorin's, already
+# contacted for the APT packages: keeping it adds no new party.
+apps_remove_flatpak_remotes: []
+
+# Zorin's metapackages. If one of them depended on an application, removing
+# the application would remove the metapackage too, and everything it kept
+# installed would become a candidate for "autoremove". On the test VM Zorin
+# lists the applications as Recommends, so the metapackages stayed; their
+# dependencies that stay are marked as installed by hand anyway, as a
+# safeguard against a future Zorin release that changes that.
+apps_metapackages:
+  - zorin-os-standard
+  - zorin-os-desktop
+  - zorin-os-minimal
