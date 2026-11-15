@@ -20,10 +20,11 @@ Contents:
 12. [Role: integrity](#12-role-integrity)
 13. [Role: yara](#13-role-yara)
 14. [Role: desktop](#14-role-desktop)
-15. [Scripts and the pre-commit hook](#15-scripts-and-the-pre-commit-hook)
-16. [Files the playbook creates on the laptop](#16-files-the-playbook-creates-on-the-laptop)
-17. [Known limits and points to review](#17-known-limits-and-points-to-review)
-18. [How it was tested](#18-how-it-was-tested)
+15. [Role: apps](#15-role-apps)
+16. [Scripts and the pre-commit hook](#16-scripts-and-the-pre-commit-hook)
+17. [Files the playbook creates on the laptop](#17-files-the-playbook-creates-on-the-laptop)
+18. [Known limits and points to review](#18-known-limits-and-points-to-review)
+19. [How it was tested](#19-how-it-was-tested)
 
 ---
 
@@ -173,7 +174,7 @@ Writes `/etc/apt/apt.conf.d/21auto-upgrades-local`. APT reads that directory in 
 **Configure what unattended-upgrades installs**
 Writes `/etc/apt/apt.conf.d/52unattended-upgrades-local`, read after the stock `50unattended-upgrades`.
 
-- **Origins.** The role adds `base_unattended_origins` to the stock list: `origin=Ubuntu,archive=noble-security` and `noble-updates` (bug fixes, as on the server, which Ubuntu does not install by itself). The lists add up. On the test VM the stock list of Zorin 18 already allowed `o=Ubuntu,a=noble-security`, so security updates were covered before the role too; the role names it anyway, so that a change to Zorin's file cannot silently stop them.
+- **Origins.** The role adds `base_unattended_origins` to the stock list: `origin=Ubuntu,archive=noble-security` and `noble-updates` (bug fixes, as on the server, which Ubuntu does not install by itself); **Brave**'s repository (`origin=Brave Software,label=Brave Browser`); and Zorin's four Launchpad PPAs (`LP-PPA-zorinos-stable`, `-patches`, `-apps`, `-drivers`), which carry Zorin's own packages and its patched builds of system packages. Without the last five, on the test VM Brave was ten versions behind (1.89 installed, 1.99 published) and 54 Zorin packages were waiting: they were installed only by hand, from Software. They were already trusted for installing; now they are also kept up to date. The lists add up. On the test VM the stock list of Zorin 18 already allowed `o=Ubuntu,a=noble-security`, so security updates were covered before the role too; the role names it anyway, so that a change to Zorin's file cannot silently stop them.
 - **Not included**: Zorin's own repository and the Flatpak apps. Zorin's packages arrive through GNOME Software (with the admin password); Flatpak apps update from GNOME Software too.
 - `Automatic-Reboot "false"`: the laptop never reboots by itself. GNOME shows when a reboot is needed.
 - `Remove-Unused-Kernel-Packages`, `Remove-New-Unused-Dependencies`: old kernels and the dependencies an upgrade left behind are removed, so `/boot` does not fill up.
@@ -553,7 +554,40 @@ The first version wrote only the plain section `[org.gnome.desktop.interface]`, 
 
 ---
 
-## 15. Scripts and the pre-commit hook
+## 15. Role: apps
+
+Purpose: the laptop is for the terminal and the browser. Zorin's other applications go, without taking the system with them.
+
+### Protect what stays
+
+Almost every application arrives through Zorin's metapackages (`zorin-os-standard`, `zorin-os-desktop`, `zorin-os-minimal`), which depend on them. apt removes a metapackage together with any application it depends on. Everything else the metapackage had pulled in is then marked "automatically installed, no longer needed", and the next `autoremove` (this role's, or an unattended upgrade's) would remove it: possibly the desktop itself.
+
+**Read the dependencies of Zorin's metapackages** / **Choose the packages to keep** / **Mark the packages that stay as installed by hand**
+The direct dependencies of the metapackages still installed (`apt-cache depends --installed`, `Depends` and `Recommends`, alternatives included), minus the packages on the removal list, are marked with `apt-mark manual`: apt never removes a manually installed package as unused. This also runs in check mode: the mark is harmless, and without it `--check` would show the chain of removals the role prevents. After the first run the metapackages are gone, the list is empty, and nothing more is marked.
+
+### Remove
+
+**Remove the applications that are not needed**
+`apps_remove_packages`, purged, with `autoremove` for the libraries only they used. The list, by reason:
+
+| Reason | Packages |
+| --- | --- |
+| Network, privacy, attack surface | `evolution` (mail and calendar client), `remmina` and its plugins (remote desktop), `zorin-connect` (pairs with a phone and listens on the network), `webapp-manager`, `gnome-weather` (sends the location), `gnome-clocks`, `gnome-calendar`, `gnome-contacts` |
+| Not needed | `brasero`, `deja-dup`, `rhythmbox`, `totem`, `gnome-snapshot`, `gnome-sound-recorder`, `simple-scan`, `gnome-tour`, `zorin-os-tour-video`, `malcontent-gui`, the Windows App Support shortcut, `alacarte`, `gufw` (ufw's window: the firewall is nftables, managed by `hardening`), `gnome-calculator`, `gnome-font-viewer`, `baobab`, `gnome-power-manager`, `gnome-logs`, LibreOffice (`libreoffice*`) |
+
+Names, not patterns, except for LibreOffice: `evolution*` would also match `evolution-data-server`, which `gnome-shell` needs. Nothing outside the suite starts with `libreoffice`.
+
+Kept: Settings, Files, Terminal, Software, Software Updater, Software & Updates, System Monitor, Disks (LUKS), Passwords and Keys (the GNOME keyring), Zorin Appearance, Upgrade Zorin OS, the network, language and input settings, Help, Vim, and four light viewers the browser hands files to: Document Viewer, Image Viewer, Text Editor, File Roller.
+
+**List the Flatpak apps** / **Remove the Flatpak apps that are not needed** / **Remove unused Flatpak runtimes**
+The Calculator installed for the tests, then the runtimes no app uses any more (the GNOME runtime, about 1 GB).
+
+**List the Flatpak remotes** / **Remove the Flatpak remotes that are not needed**
+`zorinos` (`flatpak.zorinos.com`): no installed app comes from it, and each remote is one more source Software offers apps from. Flathub stays.
+
+---
+
+## 16. Scripts and the pre-commit hook
 
 ### scripts/bootstrap.sh
 
@@ -574,7 +608,7 @@ Fetches the YARA rules from ESET's and Elastic's repositories at the pinned comm
 
 Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT;`. Here `vault.yml` is also in `.gitignore`; the hook covers a forced `git add -f`. Enable it once per clone: `git config core.hooksPath .githooks`.
 
-## 16. Files the playbook creates on the laptop
+## 17. Files the playbook creates on the laptop
 
 | File | Role | Purpose |
 | --- | --- | --- |
@@ -609,7 +643,7 @@ Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT
 
 Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service`, `clamav-daemon`, `clamav-freshclam` and `smartmontools` (enabled). State and logs: `/var/lib/{unattended-upgrades-report,disk-space-check,integrity-check}/`, `/var/log/{clamav,yara}/`.
 
-## 17. Known limits and points to review
+## 18. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
 - **Pattern rules in the sandbox.** Claude Code warns that "glob patterns in sandbox permission rules are not fully supported on Linux". On the VM, `Read(**/.env)` did apply to a sandboxed `cat .env`: the sandbox replaces the matching files with an empty device when the command starts. A file created by the same command, after it started, is not covered. Keep secrets out of project folders anyway.
@@ -623,11 +657,12 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **Shared Telegram bot.** The laptop holds the server's bot token (root only). Losing the laptop means rotating it for the server and Uptime Kuma too.
 - **Monitoring is weaker than the server's.** Uptime Kuma sees the laptop only at home, and the 7-day heartbeat catches a job that stopped, not a job that failed today (Telegram does that).
 - **Scans match what you keep.** Documentation or Claude transcripts that quote malware strings can match YARA or ClamAV. The repositories' own rule files are excluded; anything else is reported, and judged by you (maintenance guide, "YARA match").
+- **Zorin's metapackages are removed** by the `apps` role. A major Zorin upgrade (`zorin-os-upgrader`) may expect them: before one, read the upgrader's notes, and reinstall `zorin-os-standard` only if it asks for it (it would bring back the removed applications, which the next run removes again).
 - **Cursor in Flatpak apps**: GTK4 Flatpak apps (the Calculator, for example) keep the Adwaita cursor; see Role: desktop.
 - **SMART** was not tested: the VM has no physical disk. Check `verify.md` section 10 on the laptop itself.
 - **The first unattended upgrade** after an install is large (about 400 packages on the VM) and runs while you work: expect a slower laptop for half an hour, and a reboot request at the end.
 
-## 18. How it was tested
+## 19. How it was tested
 
 On the development laptop (Fedora 44, ansible-core 2.20.7):
 

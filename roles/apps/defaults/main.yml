@@ -1,0 +1,65 @@
+---
+# ==============================================================================
+# Role apps: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# The laptop is used for the terminal and the browser (Brave, Zorin's
+# default): the rest of Zorin's applications are removed, except what the
+# system needs and a few light viewers.
+# ==============================================================================
+
+# Debian packages removed (purged), with what they are. Names, not patterns:
+# a pattern such as "evolution*" would also match evolution-data-server,
+# which gnome-shell needs.
+apps_remove_packages:
+  # Network, privacy, attack surface
+  - evolution                 # mail and calendar client, talks to servers
+  - remmina                   # remote desktop client (RDP, VNC)
+  - remmina-common
+  - remmina-plugin-rdp
+  - remmina-plugin-secret
+  - remmina-plugin-vnc
+  - zorin-connect             # pairing with a phone, listens on the network
+  - webapp-manager            # web sites as apps
+  - gnome-weather             # sends the location for the forecast
+  - gnome-clocks              # world clocks, weather
+  - gnome-calendar
+  - gnome-contacts
+  # Not needed
+  - brasero                   # CD/DVD burning
+  - deja-dup                  # backups (the data of v lives in OpenCloud and GitHub)
+  - rhythmbox                 # music
+  - totem                     # videos
+  - gnome-snapshot            # camera
+  - gnome-sound-recorder
+  - simple-scan               # document scanner
+  - gnome-tour
+  - zorin-os-tour-video
+  - malcontent-gui            # parental controls
+  - zorin-windows-app-support-installation-shortcut
+  - alacarte                  # menu editor
+  - gufw                      # ufw's window: the firewall is nftables, managed here
+  - gnome-calculator
+  - gnome-font-viewer
+  - baobab                    # disk usage analyzer
+  - gnome-power-manager       # power statistics
+  - gnome-logs                # journal viewer (journalctl does it)
+  # LibreOffice: every package of the suite. A pattern is safe here: nothing
+  # outside the suite starts with "libreoffice".
+  - "libreoffice*"
+
+# Flatpak apps removed. The Calculator was installed for the tests on the VM.
+apps_remove_flatpaks:
+  - org.gnome.Calculator
+
+# Flatpak remotes removed: Zorin's provides no app here. Flathub stays, for
+# an app that may be needed later.
+apps_remove_flatpak_remotes:
+  - zorinos
+
+# Zorin's metapackages. Removing an application that one of them depends on
+# removes the metapackage too, and everything it kept installed would become
+# a candidate for "autoremove". Their dependencies that stay are therefore
+# marked as installed by hand first.
+apps_metapackages:
+  - zorin-os-standard
+  - zorin-os-desktop
+  - zorin-os-minimal

@@ -29,10 +29,10 @@ Contents:
 | What | When | Where to see it |
 | --- | --- | --- |
 | Package list update (`apt-daily`) | 06:00 and 18:00 with random delays, or at the next boot | Telegram only if it fails |
-| Ubuntu security and update packages (unattended-upgrades) | Daily from 06:00, or at the next boot | Telegram at every run: upgraded, nothing to install, errors, and whether a reboot is needed |
+| Ubuntu security and update packages, Brave, Zorin's packages (unattended-upgrades) | Daily from 06:00, or at the next boot | Telegram at every run: upgraded, nothing to install, errors, and whether a reboot is needed |
 | Service restarts after an upgrade (needrestart) | After each upgrade | journal |
 | Removal of old kernels and leftover dependencies | With the upgrades | the same log |
-| Firmware, Zorin packages, Flatpak apps | Offered by GNOME Software, installed when you accept (admin password) | GNOME Software, *Updates* |
+| Firmware, Flatpak apps | Offered by GNOME Software, installed when you accept (admin password) | GNOME Software, *Updates* |
 | ClamAV signature updates (freshclam) | Several times a day | `journalctl -u clamav-freshclam` |
 | ClamAV scan | Daily at 12:30, or at the next boot | Telegram at every run |
 | YARA scan (files and suspicious processes) | Daily at 13:30, or at the next boot | Telegram on matches or errors only |
@@ -52,7 +52,7 @@ Nothing reboots the laptop by itself, and nothing updates Claude Code: its versi
 ### Every week
 
 - When GNOME asks for a reboot after an update (a new kernel), reboot the same day: until then the old kernel runs.
-- Open GNOME Software, *Updates*: install the Flatpak apps, Zorin's packages and any firmware it offers. The browser is a Flatpak: a browser left out of date is the largest risk on a desktop.
+- Open GNOME Software, *Updates*: install any firmware it offers, and Flatpak apps if you added some. Brave and Zorin's packages update by themselves every day (unattended-upgrades): check in the Telegram report that `brave-browser` shows up when Brave announces a release. A browser left out of date is the largest risk on a desktop.
 
 ### Every month
 
@@ -283,6 +283,10 @@ As `v-admin`: `sudo passwd v`. The password is not in the repository nor on the 
 
 With the connectivity check off, a hotel or train Wi-Fi does not open its login page by itself. Open any plain `http://` address in the browser (for example `http://neverssl.com`): the network redirects it to its login page.
 
+### Install an application
+
+From Flathub, through Software or `flatpak install --system flathub <app id>` (as `v-admin`, or with the admin password): Flatpak apps run sandboxed. An application removed by the `apps` role comes back only if you take it off `apps_remove_packages` in a PR; otherwise the next run removes it again.
+
 ### A blocked package is needed
 
 `apt install` refuses a package listed in `/etc/apt/preferences.d/90-privacy-blocked` ("has no installation candidate"). If you really need it (for example a Snap-only app), remove it from `privacy_purge_packages` or set `privacy_remove_snapd: false`, in a PR, and run `--tags privacy`. Prefer the Flatpak of the same app.
@@ -441,4 +445,4 @@ What an attacker in `v` can reach: what `v` can read and its sessions (GitHub, C
 | Push calls | `journalctl -g notify-push` |
 | Timers | `systemctl list-timers` |
 | Installed Claude Code | `/opt/claude-code/<version>/`, `/usr/local/bin/claude` (wrapper) |
-| What the playbook writes | [walkthrough, section 16](walkthrough.md#16-files-the-playbook-creates-on-the-laptop) |
+| What the playbook writes | [walkthrough, section 17](walkthrough.md#17-files-the-playbook-creates-on-the-laptop) |
