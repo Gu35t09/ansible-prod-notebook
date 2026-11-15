@@ -273,6 +273,8 @@ tar -xJf macOS.tar.xz && find . -type f -perm /111 ! -name '*.tar.xz'      # not
 
 If the content is still only cursors, put the version and the new SHA-256 in `roles/desktop/defaults/main.yml`, PR, merge, then as `v-admin` `--tags desktop`. To switch to the white variant or another size: `desktop_cursor_theme: macOS-White`, `desktop_cursor_size: 32`.
 
+If after an update the cursor is Adwaita again for everyone, Zorin probably added a desktop-specific section: `grep -B6 cursor-theme /usr/share/glib-2.0/schemas/*.override` shows the `[org.gnome.desktop.interface:NAME]` headers; add `NAME` to `desktop_cursor_sections` and run `--tags desktop`.
+
 ### Set or change the password of v
 
 As `v-admin`: `sudo passwd v`. The password is not in the repository nor on the emergency key: `v-admin` can always reset it.

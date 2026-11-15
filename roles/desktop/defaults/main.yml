@@ -19,3 +19,15 @@ desktop_cursor_theme: "macOS"
 # 24 is GNOME's standard size; 32 is larger.
 desktop_cursor_size: 24
 desktop_cursor_cache: /var/cache/apple-cursor
+
+# Desktop-specific sections of the schema override. GLib applies a section
+# [schema:DESKTOP] when XDG_CURRENT_DESKTOP contains DESKTOP, and it always wins
+# over the plain [schema] section, whatever the file order. Zorin sets the
+# cursor in two of them (seen on the test VM): ":zorin" for the session
+# (XDG_CURRENT_DESKTOP=zorin:GNOME) and ":GNOME-Greeter" for the login screen.
+# The override repeats the value in each, and in the plain section; within the
+# same section, files are applied in name order and 90_ comes after Zorin's.
+desktop_cursor_sections:
+  - ""
+  - "zorin"
+  - "GNOME-Greeter"
