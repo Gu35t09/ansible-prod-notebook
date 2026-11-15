@@ -42,11 +42,36 @@ nmcli general permissions >/dev/null; busctl get-property org.freedesktop.Networ
   /org/freedesktop/NetworkManager org.freedesktop.NetworkManager ConnectivityCheckEnabled   # b false
 ```
 
-What the laptop still sends by itself (half an hour, desktop idle):
+What the laptop sends by itself: record half an hour with the desktop of `v` idle (start it as `v-admin`, then *Switch User* to `v` and touch nothing). Only DNS, UDP and the first packet of each new TCP connection are kept: no content.
 
 ```bash
-sudo timeout 1800 tcpdump -i any -n -l port 53 2>/dev/null | grep -oE '(A|AAAA)\? [^ ]+' | sort | uniq -c | sort -rn
+sudo timeout 1800 tcpdump -i any -n -w /var/tmp/idle.pcap \
+  'port 53 or udp or (tcp[tcpflags] & tcp-syn != 0 and tcp[tcpflags] & tcp-ack == 0)'
 ```
+
+Then read it. With `-i any` each line carries the interface and the direction (`In`, `Out`, `M` for multicast received), so the destination is the field after `>`:
+
+```bash
+echo "== DNS names =="
+sudo tcpdump -n -r /var/tmp/idle.pcap port 53 2>/dev/null | grep -oE '(A|AAAA)\? [^ ]+' | sort | uniq -c | sort -rn
+echo "== New TCP connections =="
+sudo tcpdump -n -r /var/tmp/idle.pcap 'tcp[tcpflags] & tcp-syn != 0' 2>/dev/null \
+  | awk '{for(i=1;i<=NF;i++) if($i==">") print $3, $(i-1), "->", $(i+1)}' | sed 's/:$//' | sort | uniq -c
+echo "== UDP, not DNS =="
+sudo tcpdump -n -r /var/tmp/idle.pcap 'udp and not port 53' 2>/dev/null \
+  | awk '{for(i=1;i<=NF;i++) if($i==">") print $3, $(i-1), "->", $(i+1)}' | sed -E 's/\.[0-9]+ ->/ ->/; s/:$//' | sort | uniq -c | sort -rn | head -15
+sudo rm /var/tmp/idle.pcap
+```
+
+On the test VM (15 November 2026) the only outgoing traffic in 30 minutes was:
+- **no DNS query at all**;
+- four TCP connections to `10.123.12.11:443`: the push calls of the integrity and disk space checks, which connect by address;
+- NTP to `185.125.190.56` (`ntp.ubuntu.com`);
+- one DHCP renewal.
+
+Everything else was multicast **received** from the host (mDNS 5353, SSDP 1900, WS-Discovery 3702), dropped by the firewall. A new name or address in the `Out` lines means a new package or app is calling home.
+
+Daily jobs (apt, freshclam, GNOME Software, fwupd) are not always inside a 30-minute window. For them, record DNS only for a day: `sudo timeout 86400 tcpdump -i any -n -w /var/tmp/day.pcap port 53`. The expected names are the Ubuntu archives, `database.clamav.net`, Flathub, `fwupd.org`, `api.telegram.org`.
 
 ## 5. Firewall and sysctl (hardening)
 
