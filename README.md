@@ -104,7 +104,7 @@ Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`
    cd ~/Documents/ansible-prod-notebook
    ./scripts/bootstrap.sh
    ```
-4. The vault, as `v-admin` (the values are the server's Telegram bot and chat; the Uptime Kuma tokens come in step 7, leave them out for now). Its password can be the same as the server's vault; keep a copy of the file on the emergency secrets key:
+4. The vault, as `v-admin` (the values are the server's Telegram bot and chat; the Uptime Kuma tokens come in step 8, leave them out for now). Its password can be the same as the server's vault; keep a copy of the file on the emergency secrets key:
    ```bash
    cp inventory/group_vars/laptops/vault.yml.example inventory/group_vars/laptops/vault.yml
    ansible-vault encrypt inventory/group_vars/laptops/vault.yml
@@ -118,7 +118,8 @@ Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`
    ```
    The run creates `v`; set its password: `sudo passwd v`. The first run takes a few minutes: ClamAV downloads its signatures (a few hundred MB) before the daemon can start.
 6. Log out, log in as `v`. Claude Code: `cd` into a project and run `claude`; log in with the subscription (the browser opens claude.ai). On claude.ai, *Settings → Privacy*: choose whether conversations may be used to improve the models.
-7. Uptime Kuma (at home, `https://health.greyroom.net`): *Add New Monitor*, type **Push**, *Retries* 0, *Heartbeat Interval* **604800** (7 days), one per job. Copy each token (the part of the *Push URL* after `/api/push/`, before `?`) into `vault_uptime_kuma_push_tokens` under the job's name, then, as `v-admin`, `--tags base` (it carries the `notify` role, which writes the calls):
+7. Brave's extensions, by hand as `v` (maintenance guide, "Browser extensions"): **Bitwarden** (with the server `https://vault.greyroom.net`), **PopUpOFF**, **Privacy Badger**.
+8. Uptime Kuma (at home, `https://health.greyroom.net`): *Add New Monitor*, type **Push**, *Retries* 0, *Heartbeat Interval* **604800** (7 days), one per job. Copy each token (the part of the *Push URL* after `/api/push/`, before `?`) into `vault_uptime_kuma_push_tokens` under the job's name, then, as `v-admin`, `--tags base` (it carries the `notify` role, which writes the calls):
 
    | Monitor | Job name |
    | --- | --- |
@@ -129,7 +130,7 @@ Zorin ships `bwrap-userns-restrict-patched` (package `zorin-os-default-settings`
    | Laptop: disk space check | `disk_space` |
 
    Why 7 days and not 25 hours as on the server: the laptop is often off, and away from home it cannot reach Uptime Kuma (it is on the services VLAN, with no WireGuard). A call that fails is only logged; the jobs send their own failures to Telegram from anywhere. A monitor turns red only when its job has not reported from home for a week.
-8. Check everything with [verify.md](verify.md).
+9. Check everything with [verify.md](verify.md).
 
 ## Documentation
 
