@@ -54,6 +54,8 @@
       tags: [desktop]
     - role: apps
       tags: [apps]
+    - role: security_keys
+      tags: [security-keys, security]
     # Detection and monitoring. notify runs before base, as its dependency.
     - role: clamav
       tags: [clamav, detection]

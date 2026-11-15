@@ -1,0 +1,99 @@
+---
+# ==============================================================================
+# Role: security_keys
+# SSH to production from the admin user, with the key on the YubiKey (PIN and
+# touch at every connection): the packages, the client configuration and the
+# servers' host keys pinned in the repository. Nothing for the everyday user.
+# Walkthrough: docs/walkthrough.md, "Role: security_keys".
+# ==============================================================================
+
+# Every host needs a pinned key: a first connection must not accept whatever
+# key it is sent.
+- name: Check the hosts and their pinned keys
+  ansible.builtin.assert:
+    that:
+      - item.names | length > 0
+      - item.hostname | length > 0
+      - item.user | length > 0
+      - item.host_key is match('^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]+$')
+    fail_msg: >-
+      {{ item.names | first }}: host_key must be the server's public host key,
+      "ssh-ed25519 AAAA...". Read it on the server's console
+      (cat /etc/ssh/ssh_host_ed25519_key.pub, fields 1 and 2) or from a computer
+      that already trusts it (ssh-keygen -F {{ item.hostname }}), and compare the
+      fingerprints (maintenance guide, "SSH to production").
+    quiet: true
+  loop: "{{ security_keys_ssh_hosts }}"
+  loop_control:
+    label: "{{ item.names | first }}"
+
+- name: Install the SSH and FIDO2 packages
+  ansible.builtin.apt:
+    name: "{{ security_keys_packages }}"
+    state: present
+
+- name: Find the home of the admin user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ laptop_admin_user }}"
+
+- name: Remember the home of the admin user
+  ansible.builtin.set_fact:
+    security_keys_home: "{{ ansible_facts['getent_passwd'][laptop_admin_user][4] }}"
+
+- name: Create the SSH directories of the admin user
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ laptop_admin_user }}"
+    group: "{{ laptop_admin_user }}"
+    mode: "0700"
+  loop:
+    - "{{ security_keys_home }}/.ssh"
+    - "{{ security_keys_home }}/.ssh/known_hosts.d"
+
+# One file per host, written whole, owned by root: neither ssh (UpdateHostKeys
+# no) nor the user changes it. A changed host key makes ssh refuse to connect.
+- name: Pin the host keys
+  ansible.builtin.copy:
+    dest: "{{ security_keys_home }}/.ssh/known_hosts.d/{{ item.names | first }}"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook, role security_keys).
+      {{ item.names | first }} {{ item.host_key }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ security_keys_ssh_hosts }}"
+  loop_control:
+    label: "{{ item.names | first }}"
+
+# At the top of the file: for each option ssh keeps the first value it finds,
+# so these blocks win over anything below them. The rest of the file is the
+# user's.
+- name: Configure SSH to the production hosts
+  ansible.builtin.blockinfile:
+    path: "{{ security_keys_home }}/.ssh/config"
+    create: true
+    insertbefore: BOF
+    marker: "# {mark} ANSIBLE MANAGED: production hosts (ansible-prod-notebook, role security_keys)"
+    block: "{{ lookup('ansible.builtin.template', 'ssh_config_block.j2') }}"
+    owner: "{{ laptop_admin_user }}"
+    group: "{{ laptop_admin_user }}"
+    mode: "0600"
+
+# The reference file comes from the YubiKey, with its PIN and a touch: the
+# playbook cannot write it. Remind until it is there.
+- name: Look for the reference to the key on the YubiKey
+  ansible.builtin.stat:
+    path: "{{ security_keys_home }}/{{ security_keys_identity_file }}"
+  register: security_keys_identity
+
+- name: Remind to fetch the key reference from the YubiKey
+  ansible.builtin.debug:
+    msg: >-
+      {{ security_keys_home }}/{{ security_keys_identity_file }} is missing. As
+      {{ laptop_admin_user }}, with the YubiKey plugged in:
+      cd ~/.ssh && ssh-keygen -K && mv id_ed25519_sk_rk_prod-srv-01 id_ed25519_sk
+      && mv id_ed25519_sk_rk_prod-srv-01.pub id_ed25519_sk.pub
+      (maintenance guide, "SSH to production").
+  when: not security_keys_identity.stat.exists
