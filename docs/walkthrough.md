@@ -21,10 +21,11 @@ Contents:
 13. [Role: yara](#13-role-yara)
 14. [Role: desktop](#14-role-desktop)
 15. [Role: apps](#15-role-apps)
-16. [Scripts and the pre-commit hook](#16-scripts-and-the-pre-commit-hook)
-17. [Files the playbook creates on the laptop](#17-files-the-playbook-creates-on-the-laptop)
-18. [Known limits and points to review](#18-known-limits-and-points-to-review)
-19. [How it was tested](#19-how-it-was-tested)
+16. [Role: security_keys](#16-role-security_keys)
+17. [Scripts and the pre-commit hook](#17-scripts-and-the-pre-commit-hook)
+18. [Files the playbook creates on the laptop](#18-files-the-playbook-creates-on-the-laptop)
+19. [Known limits and points to review](#19-known-limits-and-points-to-review)
+20. [How it was tested](#20-how-it-was-tested)
 
 ---
 
@@ -37,7 +38,7 @@ There is a single playbook, `site.yml`, with a single play that targets the `lap
 1. **Fact gathering** (`gather_facts: true`). Ansible collects the distribution, the release and the rest into `ansible_facts`.
 2. **Pre-task "Check that the target runs Zorin OS 18 (Ubuntu 24.04 base)"**. The play stops on anything else: the package names, the AppArmor profile and the APT origins are Zorin's and Ubuntu 24.04's. Ansible reports Zorin as a distribution whose name contains "Zorin" and whose release is `noble`.
 3. **Pre-task "Check that the playbook runs as the admin user"**. It compares `$USER` with `laptop_admin_user`. The playbook needs sudo, and only `v-admin` has it; the check gives a clear message instead of a sudo error, and reminds that the admin works in its own session. It is a guard against mistakes, not a security boundary (sudo is the boundary).
-4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`, `desktop`, then the detection and monitoring roles `clamav`, `monitoring`, `integrity`, `yara`. `notify` is not in the list: it is a dependency of `base`, `clamav`, `monitoring`, `integrity` and `yara` (their `meta/main.yml`), so Ansible runs it once, before `base`.
+4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`, `desktop`, `apps`, `security_keys`, then the detection and monitoring roles `clamav`, `monitoring`, `integrity`, `yara`. `notify` is not in the list: it is a dependency of `base`, `clamav`, `monitoring`, `integrity` and `yara` (their `meta/main.yml`), so Ansible runs it once, before `base`.
 
 The order matters:
 
@@ -59,6 +60,8 @@ Both pre-tasks carry the `always` tag, so they also run when you select other ta
 | `hardening`, `security` | hardening |
 | `claude-code`, `security` | claude_code |
 | `desktop` | desktop |
+| `apps` | apps |
+| `security-keys`, `security` | security_keys |
 | `clamav`, `detection` | clamav (+ notify) |
 | `monitoring` | monitoring (+ notify) |
 | `integrity`, `detection` | integrity (+ notify) |
@@ -587,7 +590,41 @@ The Calculator installed for the tests, then the runtimes no app uses any more (
 
 ---
 
-## 16. Scripts and the pre-commit hook
+## 16. Role: security_keys
+
+Purpose: `ssh prod-srv-01` from `v-admin`, with the key on the YubiKey (PIN and touch at every connection), and with the server's host key known in advance. Nothing for `v`. The server side (the key in `admin_ssh_keys`, how it was created) is in ansible-prod-srv's maintenance guide, "SSH with the YubiKey".
+
+**Check the hosts and their pinned keys**
+Each entry of `security_keys_ssh_hosts` (in `group_vars`) needs names, an address, a user and a public host key. The play stops on an empty or malformed `host_key`, with where to read it: a first connection must not trust whatever key it is sent.
+
+**Install the SSH and FIDO2 packages**
+`openssh-client`, `libfido2-1` (talks to the YubiKey) and `ssh-askpass-gnome` (the PIN window when ssh runs without a terminal, as under Ansible: Ubuntu's counterpart of Fedora's `openssh-askpass`). All in main. No udev rule is added: systemd's own rules give FIDO devices to the user of the active session, which is also why `su` from `v` would not reach the YubiKey.
+
+**Find the home of the admin user** / **Remember the home of the admin user** / **Create the SSH directories of the admin user**
+`~/.ssh` and `~/.ssh/known_hosts.d` of `v-admin`, mode 0700.
+
+**Pin the host keys**
+One file per host, `~/.ssh/known_hosts.d/<first name>`, written whole, owned by root, mode 0644: the line `prod-srv-01 ssh-ed25519 AAAA…`. If the server's key ever changes (a reinstall), ssh refuses to connect until the new key is put in the repository: that is the point.
+
+**Configure SSH to the production hosts**
+A managed block at the top of `~/.ssh/config` of `v-admin` (for each option ssh keeps the first value it finds, so the block wins over anything below; the rest of the file is left alone):
+
+| Option | Why |
+| --- | --- |
+| `Host prod-srv-01 prod-srv-01.greyroom.net 10.123.11.11` | `ssh prod-srv-01`, the full name and the address all match. The address is what ansible-prod-srv's inventory uses, so the server playbook gets the same settings |
+| `HostName 10.123.11.11`, `User v` | Where and as whom: a fixed address, so no name needs DNS (`prod-srv-01.greyroom.net` need not be in Unbound) |
+| `IdentityFile ~/.ssh/id_ed25519_sk`, `IdentitiesOnly yes` | Only the key on the YubiKey is offered |
+| `IdentityAgent none` | Not GNOME's agent (`gcr-ssh-agent`): it loads keys by itself and cannot ask for a FIDO2 PIN ("agent refused operation") |
+| `HostKeyAlias prod-srv-01`, `UserKnownHostsFile ~/.ssh/known_hosts.d/prod-srv-01`, `StrictHostKeyChecking yes`, `UpdateHostKeys no` | One pinned key for every name and the address; never ask to accept a key, never rewrite the file |
+
+Checked with `ssh -G`: the three names resolve to these settings, other hosts in the file keep their own; a second run changes nothing.
+
+**Look for the reference to the key on the YubiKey** / **Remind to fetch the key reference from the YubiKey**
+`~/.ssh/id_ed25519_sk` is a reference to the resident key on the YubiKey, useless without it. Writing it needs the PIN and a touch, so the playbook only reminds: `cd ~/.ssh && ssh-keygen -K`, then rename the files it writes (`id_ed25519_sk_rk_prod-srv-01`, `.pub`) to `id_ed25519_sk`.
+
+---
+
+## 17. Scripts and the pre-commit hook
 
 ### scripts/bootstrap.sh
 
@@ -608,7 +645,7 @@ Fetches the YARA rules from ESET's and Elastic's repositories at the pinned comm
 
 Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT;`. Here `vault.yml` is also in `.gitignore`; the hook covers a forced `git add -f`. Enable it once per clone: `git config core.hooksPath .githooks`.
 
-## 17. Files the playbook creates on the laptop
+## 18. Files the playbook creates on the laptop
 
 | File | Role | Purpose |
 | --- | --- | --- |
@@ -637,13 +674,14 @@ Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT
 | `/etc/smartd.conf`, `/etc/smartmontools/run.d/20telegram` | monitoring | SMART monitoring and its Telegram hook |
 | `/usr/local/sbin/disk-space-check`, `/etc/systemd/system/disk-space-check.{service,timer}` | monitoring | Disk space check |
 | `/usr/local/sbin/integrity-check`, `/etc/systemd/system/integrity-check.{service,timer}` | integrity | Integrity check |
+| `~v-admin/.ssh/config` (managed block), `~v-admin/.ssh/known_hosts.d/prod-srv-01` | security_keys | SSH to production with the YubiKey, pinned host key |
 | `/var/cache/apple-cursor/macOS-<version>.tar.xz`, `/usr/share/icons/macOS/` | desktop | The cursor theme, downloaded and installed |
 | `/usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override` | desktop | The macOS cursor as GNOME's default |
 | `/etc/yara/rules/`, `/usr/local/sbin/yara-scan`, `/usr/local/sbin/yara-report`, `/etc/systemd/system/yara-scan.{service,timer}`, `/etc/systemd/system/yara-report.service` | yara | Rules, sandboxed daily scan, report |
 
 Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service`, `clamav-daemon`, `clamav-freshclam` and `smartmontools` (enabled). State and logs: `/var/lib/{unattended-upgrades-report,disk-space-check,integrity-check}/`, `/var/log/{clamav,yara}/`.
 
-## 18. Known limits and points to review
+## 19. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
 - **Pattern rules in the sandbox.** Claude Code warns that "glob patterns in sandbox permission rules are not fully supported on Linux". On the VM, `Read(**/.env)` did apply to a sandboxed `cat .env`: the sandbox replaces the matching files with an empty device when the command starts. A file created by the same command, after it started, is not covered. Keep secrets out of project folders anyway.
@@ -662,7 +700,7 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **SMART** was not tested: the VM has no physical disk. Check `verify.md` section 10 on the laptop itself.
 - **The first unattended upgrade** after an install is large (about 400 packages on the VM) and runs while you work: expect a slower laptop for half an hour, and a reboot request at the end.
 
-## 19. How it was tested
+## 20. How it was tested
 
 On the development laptop (Fedora 44, ansible-core 2.20.7):
 

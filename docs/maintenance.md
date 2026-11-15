@@ -190,6 +190,25 @@ If the message says the unit ended with `signal` or `exit-code` and no reason of
 - **For a single system task while working as `v`** (installing an app in Software, an update, a setting): GNOME's authentication window asks for the password of `v-admin`. It is drawn by the shell, not by a terminal of `v`.
 - **Never** `su - v-admin` or `sudo -iu v-admin` in a terminal of `v`: the password would be typed in the session you are protecting, and the YubiKey would not be reachable anyway.
 
+### SSH to production
+
+As `v-admin`, with the YubiKey plugged in: `ssh prod-srv-01` asks for the FIDO2 PIN, then a touch. The playbook of ansible-prod-srv asks for the PIN in a window (ssh-askpass) and for the touch, once per run.
+
+**First time on this laptop** (after `--tags security-keys`, which reminds it):
+
+```bash
+cd ~/.ssh && ssh-keygen -K          # PIN and touch: writes id_ed25519_sk_rk_prod-srv-01 and .pub
+mv id_ed25519_sk_rk_prod-srv-01 id_ed25519_sk
+mv id_ed25519_sk_rk_prod-srv-01.pub id_ed25519_sk.pub
+ssh prod-srv-01 hostname             # PIN, touch, "prod-srv-01"
+```
+
+**The pinned host key.** `security_keys_ssh_hosts[].host_key` in `group_vars` is the server's `/etc/ssh/ssh_host_ed25519_key.pub` (its first two fields). To set or change it, read it from the server's console or from a computer that already trusts it, and compare the fingerprint with the console's `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` before committing. After a reinstall of the server ssh refuses with "REMOTE HOST IDENTIFICATION HAS CHANGED": expected; update the key the same way, never with `ssh-keygen -R`.
+
+**Without the YubiKey**: the file key on the emergency secrets key, as in ansible-prod-srv's guide ("SSH with the YubiKey", "Without the YubiKey"): `ssh -i ~/.ssh/emergency_key prod-srv-01` (`IdentitiesOnly` takes the `-i` key).
+
+Each failed attempt makes the server hold back the next connection for a few seconds: wait half a minute between tries.
+
 ### Work on a repository with Claude
 
 As `v`:
@@ -396,7 +415,7 @@ Everything is in this repository; the data of `v` comes from its own backup (doc
    ```
 3. Log in as `v`: log in to Claude Code, GitHub and the other services again.
 4. `verify.md`, every section.
-5. For production, as `v-admin`: the server guide's "SSH with the YubiKey" ("New computer": `ssh-keygen -K`), and a clone of ansible-prod-srv with its `vault.yml` from the emergency key.
+5. For production, as `v-admin`: [SSH to production](#ssh-to-production) ("First time on this laptop"), and a clone of ansible-prod-srv with its `vault.yml` from the emergency key.
 
 ### Lost or stolen laptop
 
@@ -445,4 +464,4 @@ What an attacker in `v` can reach: what `v` can read and its sessions (GitHub, C
 | Push calls | `journalctl -g notify-push` |
 | Timers | `systemctl list-timers` |
 | Installed Claude Code | `/opt/claude-code/<version>/`, `/usr/local/bin/claude` (wrapper) |
-| What the playbook writes | [walkthrough, section 17](walkthrough.md#17-files-the-playbook-creates-on-the-laptop) |
+| What the playbook writes | [walkthrough, section 18](walkthrough.md#18-files-the-playbook-creates-on-the-laptop) |

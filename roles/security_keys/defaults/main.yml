@@ -1,0 +1,25 @@
+---
+# ==============================================================================
+# Role security_keys: defaults. The hosts are site settings, in
+# inventory/group_vars/laptops/main.yml (security_keys_ssh_hosts).
+# ==============================================================================
+
+# openssh-client: ssh itself. libfido2-1: talks to the YubiKey (FIDO2).
+# ssh-askpass-gnome: the PIN window for ssh started without a terminal, as
+# Ansible does (Ubuntu's counterpart of Fedora's openssh-askpass). All in main.
+security_keys_packages:
+  - openssh-client
+  - libfido2-1
+  - ssh-askpass-gnome
+
+# The reference to the key on the YubiKey, in the home of the admin user.
+# Not created here: "ssh-keygen -K" writes it, with the PIN and a touch.
+security_keys_identity_file: ".ssh/id_ed25519_sk"
+
+# Hosts reached over SSH with the YubiKey, one entry each:
+#   names     what you can type after "ssh" (and what Ansible uses)
+#   hostname  where ssh connects: a fixed address, so no name needs DNS
+#   user      the account on the server
+#   host_key  the server's public host key, "ssh-ed25519 AAAA...": pinned, so
+#             a first connection from a new laptop trusts nothing it is sent
+security_keys_ssh_hosts: []

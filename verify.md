@@ -292,3 +292,15 @@ apt-mark showauto gnome-shell nautilus             # nothing: both marked as ins
 ```
 
 As `v`: the menu shows the terminal, Brave, Files, Settings, Software and the system tools, and none of the removed applications. Opening a PDF or an image from Brave opens the Document or Image Viewer.
+
+## 16. SSH to production (security_keys)
+
+As `v-admin`, with the YubiKey plugged in:
+
+```bash
+ls -l ~/.ssh/id_ed25519_sk ~/.ssh/known_hosts.d/prod-srv-01      # the reference; the pinned key, owned by root
+ssh -G prod-srv-01 | grep -E '^(hostname|user|identityagent|hostkeyalias|stricthostkeychecking) '
+ssh prod-srv-01 hostname                                          # PIN, touch, then the server's name
+```
+
+No "authenticity of host can't be established" question: the key is pinned. As `v`, `ssh prod-srv-01` must not find any configuration (it tries `prod-srv-01` as a name, as `v`, without the YubiKey).

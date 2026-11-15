@@ -1,0 +1,15 @@
+{% for host in security_keys_ssh_hosts %}
+Host {{ host.names | join(' ') }}
+    HostName {{ host.hostname }}
+    User {{ host.user }}
+    # The key on the YubiKey only: PIN and touch at every connection.
+    IdentityFile ~/{{ security_keys_identity_file }}
+    IdentitiesOnly yes
+    # Not GNOME's agent: it cannot ask for a FIDO2 PIN ("agent refused operation").
+    IdentityAgent none
+    # The pinned host key, under one alias for every name and the address.
+    HostKeyAlias {{ host.names | first }}
+    UserKnownHostsFile ~/.ssh/known_hosts.d/{{ host.names | first }}
+    StrictHostKeyChecking yes
+    UpdateHostKeys no
+{% endfor %}

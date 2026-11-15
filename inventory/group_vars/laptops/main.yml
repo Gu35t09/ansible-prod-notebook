@@ -21,3 +21,13 @@ telegram_chat_id: "{{ vault_telegram_chat_id | default('') }}"
 notify_push_tokens: "{{ vault_uptime_kuma_push_tokens | default({}) }}"
 notify_push_host: "health.greyroom.net"
 notify_push_address: "10.123.12.11"
+
+# --- SSH to production (role security_keys), for laptop_admin_user only ------
+# "ssh prod-srv-01" (or the full name, or the address, as Ansible uses it)
+# connects as v with the key on the YubiKey. host_key: the server's public
+# ed25519 host key, pinned (maintenance guide, "SSH to production").
+security_keys_ssh_hosts:
+  - names: [prod-srv-01, prod-srv-01.greyroom.net, 10.123.11.11]
+    hostname: 10.123.11.11
+    user: v
+    host_key: ""
