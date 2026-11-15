@@ -1,0 +1,75 @@
+---
+# ==============================================================================
+# Role: desktop
+# Only the cursor: the macOS theme, installed system-wide by root and set as
+# GNOME's default for every user. The rest of the desktop is Zorin's.
+# Walkthrough: docs/walkthrough.md, "Role: desktop".
+# ==============================================================================
+
+- name: Check the cursor variant
+  ansible.builtin.assert:
+    that:
+      - desktop_cursor_theme in ['macOS', 'macOS-White']
+      - desktop_cursor_size | int > 0
+    fail_msg: "desktop_cursor_theme must be macOS or macOS-White."
+    quiet: true
+
+- name: Create the download directory
+  ansible.builtin.file:
+    path: "{{ desktop_cursor_cache }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# get_url verifies the SHA-256 and keeps a file that already matches: the
+# download happens once per version.
+- name: Download the cursor theme and check it against the pinned checksum
+  ansible.builtin.get_url:
+    url: "{{ desktop_cursor_url }}"
+    dest: "{{ desktop_cursor_cache }}/macOS-{{ desktop_cursor_version }}.tar.xz"
+    checksum: "sha256:{{ desktop_cursor_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Into /usr/share/icons, where GNOME, Xcursor and Flatpak apps (through
+# /run/host/share/icons) look for themes; owned by root, so neither user can
+# change it. Only the chosen variant: the archive's LICENSE and the other
+# variant are left out. The archive's own owner (its author's UID) is not kept.
+- name: Install the cursor theme
+  ansible.builtin.unarchive:
+    src: "{{ desktop_cursor_cache }}/macOS-{{ desktop_cursor_version }}.tar.xz"
+    dest: /usr/share/icons
+    remote_src: true
+    include:
+      - "./{{ desktop_cursor_theme }}"
+    owner: root
+    group: root
+    extra_opts:
+      - --no-same-owner
+  when: not ansible_check_mode
+
+# GNOME reads its defaults from the compiled schemas. Override files are read
+# in alphabetical order: 90 comes after Zorin's (25_zorin-os-default-settings,
+# 50_zorin-desktop-session), so this value wins over theirs. A user who chose
+# another cursor in Settings keeps it: this changes the default, not the choice.
+- name: Make the macOS cursor GNOME's default
+  ansible.builtin.copy:
+    dest: /usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (ansible-prod-notebook, role desktop).
+      [org.gnome.desktop.interface]
+      cursor-theme='{{ desktop_cursor_theme }}'
+      cursor-size={{ desktop_cursor_size | int }}
+  notify: Compile the GNOME schemas
+
+# A schema override with an unknown key or a bad value would make every
+# compilation fail, packages' included: check it before compiling.
+- name: Check the schema overrides
+  ansible.builtin.command: glib-compile-schemas --strict --dry-run /usr/share/glib-2.0/schemas
+  changed_when: false
+  check_mode: false

@@ -258,3 +258,22 @@ ansible-playbook site.yml -K --ask-vault-pass                               # ch
 As `v`: `bwrap --ro-bind / / --dev /dev --proc /proc --unshare-user --unshare-net -- unshare -U -r true && echo "nested OK"` prints `nested OK`: the Claude Code sandbox starts on a fresh boot too.
 
 All checked on the test VM on 14 November 2026.
+
+## 14. Cursor (desktop)
+
+As `v-admin`:
+
+```bash
+ls /usr/share/icons/ | grep -i macos                          # macOS only
+find /usr/share/icons/macOS ! -user root | head -3            # nothing: all owned by root
+cat /usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override
+```
+
+As `v`, after logging out and in again:
+
+```bash
+gsettings get org.gnome.desktop.interface cursor-theme        # 'macOS'
+gsettings get org.gnome.desktop.interface cursor-size         # 24
+```
+
+The pointer is the macOS arrow, the hand on links is the macOS hand, also inside a Flatpak app (the Calculator) and on the login screen of a new session.

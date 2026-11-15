@@ -19,10 +19,11 @@ Contents:
 11. [Role: monitoring](#11-role-monitoring)
 12. [Role: integrity](#12-role-integrity)
 13. [Role: yara](#13-role-yara)
-14. [Scripts and the pre-commit hook](#14-scripts-and-the-pre-commit-hook)
-15. [Files the playbook creates on the laptop](#15-files-the-playbook-creates-on-the-laptop)
-16. [Known limits and points to review](#16-known-limits-and-points-to-review)
-17. [How it was tested](#17-how-it-was-tested)
+14. [Role: desktop](#14-role-desktop)
+15. [Scripts and the pre-commit hook](#15-scripts-and-the-pre-commit-hook)
+16. [Files the playbook creates on the laptop](#16-files-the-playbook-creates-on-the-laptop)
+17. [Known limits and points to review](#17-known-limits-and-points-to-review)
+18. [How it was tested](#18-how-it-was-tested)
 
 ---
 
@@ -35,7 +36,7 @@ There is a single playbook, `site.yml`, with a single play that targets the `lap
 1. **Fact gathering** (`gather_facts: true`). Ansible collects the distribution, the release and the rest into `ansible_facts`.
 2. **Pre-task "Check that the target runs Zorin OS 18 (Ubuntu 24.04 base)"**. The play stops on anything else: the package names, the AppArmor profile and the APT origins are Zorin's and Ubuntu 24.04's. Ansible reports Zorin as a distribution whose name contains "Zorin" and whose release is `noble`.
 3. **Pre-task "Check that the playbook runs as the admin user"**. It compares `$USER` with `laptop_admin_user`. The playbook needs sudo, and only `v-admin` has it; the check gives a clear message instead of a sudo error, and reminds that the admin works in its own session. It is a guard against mistakes, not a security boundary (sudo is the boundary).
-4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`, then the detection and monitoring roles `clamav`, `monitoring`, `integrity`, `yara`. `notify` is not in the list: it is a dependency of `base`, `clamav`, `monitoring`, `integrity` and `yara` (their `meta/main.yml`), so Ansible runs it once, before `base`.
+4. **Roles**, in order: `base`, `users`, `privacy`, `hardening`, `claude_code`, `desktop`, then the detection and monitoring roles `clamav`, `monitoring`, `integrity`, `yara`. `notify` is not in the list: it is a dependency of `base`, `clamav`, `monitoring`, `integrity` and `yara` (their `meta/main.yml`), so Ansible runs it once, before `base`.
 
 The order matters:
 
@@ -56,6 +57,7 @@ Both pre-tasks carry the `always` tag, so they also run when you select other ta
 | `privacy` | privacy |
 | `hardening`, `security` | hardening |
 | `claude-code`, `security` | claude_code |
+| `desktop` | desktop |
 | `clamav`, `detection` | clamav (+ notify) |
 | `monitoring` | monitoring (+ notify) |
 | `integrity`, `detection` | integrity (+ notify) |
@@ -530,7 +532,24 @@ Logs in `/var/log/yara/scan_*.log`, kept 30 days.
 
 ---
 
-## 14. Scripts and the pre-commit hook
+## 14. Role: desktop
+
+Purpose: the macOS cursor, and nothing else: the rest of the desktop stays as Zorin ships it.
+
+**Check the cursor variant**: `desktop_cursor_theme` must be `macOS` (black, the standard one) or `macOS-White`.
+
+**Create the download directory** / **Download the cursor theme and check it against the pinned checksum**
+The theme comes from [ful1e5/apple_cursor](https://github.com/ful1e5/apple_cursor) (GPL-3.0), release `v2.0.1`, archive `macOS.tar.xz`, into `/var/cache/apple-cursor/`. The project publishes no checksum: the SHA-256 in `desktop_cursor_sha256` was computed on the archive downloaded on 15 November 2026, after checking its content (88 Xcursor images, 202 aliases that all point inside the archive, two `index.theme` files and the licence; no executable, no script). Any other file is refused. It is a theme, not a program: nothing in it runs.
+
+**Install the cursor theme**
+`unarchive` into `/usr/share/icons`, only the chosen variant (`include: ./macOS`): the other variant and the archive's `LICENSE` stay out of `/usr/share/icons`. Files owned by root (`--no-same-owner`: the archive carries its author's UID, which on the laptop would be `v-admin`'s). In `/usr/share/icons` the theme is found by GNOME, by Xcursor and by Flatpak apps, which see it as `/run/host/share/icons` (checked on the VM), so it needs no extra Flatpak permission and no copy in each home. Skipped in check mode (nothing was downloaded). A second run changes nothing (tested).
+
+**Make the macOS cursor GNOME's default** / **Check the schema overrides**
+`/usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override` sets `cursor-theme` and `cursor-size` (24) in `org.gnome.desktop.interface`. GNOME's defaults come from the compiled schemas, and override files are applied in alphabetical order: on the VM Zorin has `25_zorin-os-default-settings` and `50_zorin-desktop-session`, so `90_` wins over both. It is a default: a user who picked another cursor in *Settings* keeps it (`gsettings reset org.gnome.desktop.interface cursor-theme` goes back to the default). `glib-compile-schemas --strict --dry-run` checks every override before the handler **Compile the GNOME schemas** rebuilds `gschemas.compiled`: a bad key would otherwise break the compilation for every package. Package upgrades recompile the schemas too (a dpkg trigger) and keep the override. The new cursor shows at the next login.
+
+---
+
+## 15. Scripts and the pre-commit hook
 
 ### scripts/bootstrap.sh
 
@@ -551,7 +570,7 @@ Fetches the YARA rules from ESET's and Elastic's repositories at the pinned comm
 
 Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT;`. Here `vault.yml` is also in `.gitignore`; the hook covers a forced `git add -f`. Enable it once per clone: `git config core.hooksPath .githooks`.
 
-## 15. Files the playbook creates on the laptop
+## 16. Files the playbook creates on the laptop
 
 | File | Role | Purpose |
 | --- | --- | --- |
@@ -580,11 +599,13 @@ Refuses a commit that adds a `vault.yml` whose first line is not `$ANSIBLE_VAULT
 | `/etc/smartd.conf`, `/etc/smartmontools/run.d/20telegram` | monitoring | SMART monitoring and its Telegram hook |
 | `/usr/local/sbin/disk-space-check`, `/etc/systemd/system/disk-space-check.{service,timer}` | monitoring | Disk space check |
 | `/usr/local/sbin/integrity-check`, `/etc/systemd/system/integrity-check.{service,timer}` | integrity | Integrity check |
+| `/var/cache/apple-cursor/macOS-<version>.tar.xz`, `/usr/share/icons/macOS/` | desktop | The cursor theme, downloaded and installed |
+| `/usr/share/glib-2.0/schemas/90_ansible-desktop.gschema.override` | desktop | The macOS cursor as GNOME's default |
 | `/etc/yara/rules/`, `/usr/local/sbin/yara-scan`, `/usr/local/sbin/yara-report`, `/etc/systemd/system/yara-scan.{service,timer}`, `/etc/systemd/system/yara-report.service` | yara | Rules, sandboxed daily scan, report |
 
 Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-admin` (0700), the packages removed by `privacy` and `hardening`, `motd-news.timer` (masked), `nftables.service`, `clamav-daemon`, `clamav-freshclam` and `smartmontools` (enabled). State and logs: `/var/lib/{unattended-upgrades-report,disk-space-check,integrity-check}/`, `/var/log/{clamav,yara}/`.
 
-## 16. Known limits and points to review
+## 17. Known limits and points to review
 
 - **Native, not isolated.** Claude Code runs as `v`, on the host kernel. The sandbox, the managed rules and the separate admin user limit what it can do; they do not make it a virtual machine. A kernel exploit from a sandboxed command would reach `v`'s session, not root's files, and not production (YubiKey).
 - **Pattern rules in the sandbox.** Claude Code warns that "glob patterns in sandbox permission rules are not fully supported on Linux". On the VM, `Read(**/.env)` did apply to a sandboxed `cat .env`: the sandbox replaces the matching files with an empty device when the command starts. A file created by the same command, after it started, is not covered. Keep secrets out of project folders anyway.
@@ -601,7 +622,7 @@ Also changed: the account `v` (created), the modes of `/home/v` and `/home/v-adm
 - **SMART** was not tested: the VM has no physical disk. Check `verify.md` section 10 on the laptop itself.
 - **The first unattended upgrade** after an install is large (about 400 packages on the VM) and runs while you work: expect a slower laptop for half an hour, and a reboot request at the end.
 
-## 17. How it was tested
+## 18. How it was tested
 
 On the development laptop (Fedora 44, ansible-core 2.20.7):
 

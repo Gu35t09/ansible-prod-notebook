@@ -1,0 +1,6 @@
+---
+# Rebuilds gschemas.compiled, which GNOME reads at login. Package upgrades
+# rebuild it too (a dpkg trigger), and keep the override.
+- name: Compile the GNOME schemas
+  ansible.builtin.command: glib-compile-schemas /usr/share/glib-2.0/schemas
+  changed_when: true

@@ -1,0 +1,21 @@
+---
+# ==============================================================================
+# Role desktop: defaults. Override them in inventory/group_vars/laptops/main.yml.
+# Everything else on the desktop stays as Zorin ships it.
+# ==============================================================================
+
+# The macOS cursor theme of ful1e5/apple_cursor (GPL-3.0): Xcursor images
+# and index files only, no code (checked: 88 cursor files, 202 aliases inside
+# the archive, no executable).
+desktop_cursor_version: "v2.0.1"
+# The project publishes no checksum: this one was computed on the archive
+# downloaded on 2026-11-15. Any other file is refused. To update, see the
+# maintenance guide, "Update the cursor theme".
+desktop_cursor_sha256: "9c6e5e13b068ce51a9e90a9abd6ce232ec7d25d4ceb05aa8ac76efbb99c76762"
+desktop_cursor_url: "https://github.com/ful1e5/apple_cursor/releases/download/{{ desktop_cursor_version }}/macOS.tar.xz"
+# The archive holds both variants: macOS (black, the standard one) and
+# macOS-White. Only the chosen one is installed.
+desktop_cursor_theme: "macOS"
+# 24 is GNOME's standard size; 32 is larger.
+desktop_cursor_size: 24
+desktop_cursor_cache: /var/cache/apple-cursor

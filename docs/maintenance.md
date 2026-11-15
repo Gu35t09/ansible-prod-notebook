@@ -258,6 +258,21 @@ As `v-admin`: `ansible-vault edit inventory/group_vars/laptops/vault.yml`, then 
 
 `ansible-vault rekey inventory/group_vars/laptops/vault.yml`, then replace the copy on the emergency key and, if it is written there, the password in `RECOVERY.txt`.
 
+### Update the cursor theme
+
+The theme rarely changes (v2.0.1 is from May 2024). For a new release of ful1e5/apple_cursor, as `v`:
+
+```bash
+d=$(mktemp -d) && cd "$d"
+curl -fsSLO https://github.com/ful1e5/apple_cursor/releases/download/<version>/macOS.tar.xz
+sha256sum macOS.tar.xz
+tar -tvJf macOS.tar.xz | awk '{print $1}' | cut -c1 | sort | uniq -c       # only - d l: files, dirs, links
+tar -tvJf macOS.tar.xz | awk '$1 ~ /^l/ {print $NF}' | grep -cE '^/|\.\.'    # 0: no link points outside
+tar -xJf macOS.tar.xz && find . -type f -perm /111 ! -name '*.tar.xz'      # nothing executable
+```
+
+If the content is still only cursors, put the version and the new SHA-256 in `roles/desktop/defaults/main.yml`, PR, merge, then as `v-admin` `--tags desktop`. To switch to the white variant or another size: `desktop_cursor_theme: macOS-White`, `desktop_cursor_size: 32`.
+
 ### Set or change the password of v
 
 As `v-admin`: `sudo passwd v`. The password is not in the repository nor on the emergency key: `v-admin` can always reset it.
@@ -424,4 +439,4 @@ What an attacker in `v` can reach: what `v` can read and its sessions (GitHub, C
 | Push calls | `journalctl -g notify-push` |
 | Timers | `systemctl list-timers` |
 | Installed Claude Code | `/opt/claude-code/<version>/`, `/usr/local/bin/claude` (wrapper) |
-| What the playbook writes | [walkthrough, section 15](walkthrough.md#15-files-the-playbook-creates-on-the-laptop) |
+| What the playbook writes | [walkthrough, section 16](walkthrough.md#16-files-the-playbook-creates-on-the-laptop) |

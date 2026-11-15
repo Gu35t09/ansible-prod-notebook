@@ -50,6 +50,8 @@
       tags: [hardening, security]
     - role: claude_code
       tags: [claude-code, security]
+    - role: desktop
+      tags: [desktop]
     # Detection and monitoring. notify runs before base, as its dependency.
     - role: clamav
       tags: [clamav, detection]
