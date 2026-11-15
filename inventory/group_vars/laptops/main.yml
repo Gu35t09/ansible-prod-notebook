@@ -26,8 +26,11 @@ notify_push_address: "10.123.12.11"
 # "ssh prod-srv-01" (or the full name, or the address, as Ansible uses it)
 # connects as v with the key on the YubiKey. host_key: the server's public
 # ed25519 host key, pinned (maintenance guide, "SSH to production").
+# Read on 2026-11-15 over an SSH connection the old laptop already trusted;
+# fingerprint SHA256:eYtcDvSldQ3/hTeR3rQpoGh6pBg9lXd/L7Ue3PCYTLc, the same in
+# that laptop's known_hosts for 10.123.11.11 and prod-srv-01.
 security_keys_ssh_hosts:
   - names: [prod-srv-01, prod-srv-01.greyroom.net, 10.123.11.11]
     hostname: 10.123.11.11
     user: v
-    host_key: ""
+    host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID+XJRLFQyPpURIwRBYqKXa5mX7OYt1U741XBQJK+Iq5"
