@@ -50,15 +50,19 @@ apps_remove_packages:
 apps_remove_flatpaks:
   - org.gnome.Calculator
 
-# Flatpak remotes removed: Zorin's provides no app here. Flathub stays, for
-# an app that may be needed later.
-apps_remove_flatpak_remotes:
-  - zorinos
+# Flatpak remotes removed. None by default. Zorin's ("zorinos") provides no
+# app, but it does provide the Zorin GTK themes for Flatpak apps (16 refs
+# org.gtk.Gtk3theme.Zorin*, found on the test VM), which Zorin Appearance uses
+# so that Flatpak apps match the desktop theme. Its server is Zorin's, already
+# contacted for the APT packages: keeping it adds no new party.
+apps_remove_flatpak_remotes: []
 
-# Zorin's metapackages. Removing an application that one of them depends on
-# removes the metapackage too, and everything it kept installed would become
-# a candidate for "autoremove". Their dependencies that stay are therefore
-# marked as installed by hand first.
+# Zorin's metapackages. If one of them depended on an application, removing
+# the application would remove the metapackage too, and everything it kept
+# installed would become a candidate for "autoremove". On the test VM Zorin
+# lists the applications as Recommends, so the metapackages stayed; their
+# dependencies that stay are marked as installed by hand anyway, as a
+# safeguard against a future Zorin release that changes that.
 apps_metapackages:
   - zorin-os-standard
   - zorin-os-desktop

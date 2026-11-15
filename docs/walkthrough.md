@@ -560,7 +560,7 @@ Purpose: the laptop is for the terminal and the browser. Zorin's other applicati
 
 ### Protect what stays
 
-Almost every application arrives through Zorin's metapackages (`zorin-os-standard`, `zorin-os-desktop`, `zorin-os-minimal`), which depend on them. apt removes a metapackage together with any application it depends on. Everything else the metapackage had pulled in is then marked "automatically installed, no longer needed", and the next `autoremove` (this role's, or an unattended upgrade's) would remove it: possibly the desktop itself.
+Almost every application arrives through Zorin's metapackages (`zorin-os-standard`, `zorin-os-desktop`, `zorin-os-minimal`). If a metapackage *depended* on an application, apt would remove the metapackage together with it. Everything else the metapackage had pulled in would then be "automatically installed, no longer needed", and the next `autoremove` (this role's, or an unattended upgrade's) would remove it: possibly the desktop itself. On the test VM Zorin 18 lists the applications as *Recommends*, so the metapackages stayed (the dry run removed about 197 packages, none of them a metapackage or part of the desktop). The protection below is kept as a safeguard against a future release that changes that.
 
 **Read the dependencies of Zorin's metapackages** / **Choose the packages to keep** / **Mark the packages that stay as installed by hand**
 The direct dependencies of the metapackages still installed (`apt-cache depends --installed`, `Depends` and `Recommends`, alternatives included), minus the packages on the removal list, are marked with `apt-mark manual`: apt never removes a manually installed package as unused. This also runs in check mode: the mark is harmless, and without it `--check` would show the chain of removals the role prevents. After the first run the metapackages are gone, the list is empty, and nothing more is marked.
@@ -583,7 +583,7 @@ Kept: Settings, Files, Terminal, Software, Software Updater, Software & Updates,
 The Calculator installed for the tests, then the runtimes no app uses any more (the GNOME runtime, about 1 GB).
 
 **List the Flatpak remotes** / **Remove the Flatpak remotes that are not needed**
-`zorinos` (`flatpak.zorinos.com`): no installed app comes from it, and each remote is one more source Software offers apps from. Flathub stays.
+`apps_remove_flatpak_remotes` is empty. The first version removed `zorinos` (`flatpak.zorinos.com`), which provides no app; on the VM `flatpak remote-delete` refused: it provides the Zorin GTK themes for Flatpak apps (16 `org.gtk.Gtk3theme.Zorin*` refs), which Zorin Appearance uses to keep Flatpak apps in the desktop's theme. Its server is Zorin's, already contacted for the APT packages, so keeping it adds no new party. Flathub stays as well.
 
 ---
 

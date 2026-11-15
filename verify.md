@@ -286,7 +286,8 @@ As `v-admin`:
 dpkg -l evolution remmina zorin-connect gnome-weather libreoffice-core gufw 2>&1 | grep -E '^ii' || echo "none installed"
 dpkg -l gnome-shell nautilus gnome-terminal brave-browser evince eog gnome-text-editor file-roller | grep -c '^ii'   # 8
 flatpak list --app --system                        # empty
-flatpak remotes --system                           # flathub only
+flatpak remotes --system                           # flathub and zorinos (Zorin's GTK themes for Flatpak apps)
+dpkg -l zorin-os-standard zorin-os-desktop | grep -c '^ii'   # 2: the metapackages stay
 apt-mark showauto gnome-shell nautilus             # nothing: both marked as installed by hand
 ```
 
