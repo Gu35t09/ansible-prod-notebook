@@ -44,7 +44,11 @@
 - name: Mark the packages that stay as installed by hand
   ansible.builtin.command: apt-mark manual {{ apps_keep | join(' ') }}
   register: apps_mark
-  changed_when: "'set to manually installed' in apps_mark.stdout"
+  # apt-mark prints "X set to manually installed." for a package it changed
+  # and "X was already set to manually installed." otherwise.
+  changed_when: >-
+    apps_mark.stdout_lines | select('search', 'set to manually installed')
+    | reject('search', 'already') | list | length > 0
   when: apps_keep | length > 0
   check_mode: false
 
