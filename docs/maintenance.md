@@ -302,6 +302,18 @@ As `v-admin`: `sudo passwd v`. The password is not in the repository nor on the 
 
 With the connectivity check off, a hotel or train Wi-Fi does not open its login page by itself. Open any plain `http://` address in the browser (for example `http://neverssl.com`): the network redirects it to its login page.
 
+### Browser extensions
+
+Installed by hand, as `v`, in Brave (they are not managed by the playbook). Only from the Chrome Web Store page the project itself links to, checking the publisher: a look-alike extension with the same name is a classic way to steal passwords.
+
+| Extension | What for | Setup |
+| --- | --- | --- |
+| **Bitwarden** (publisher Bitwarden Inc., linked from bitwarden.com) | The passwords, from Vaultwarden | Before logging in: *Logging in on → Self-hosted*, server URL `https://vault.greyroom.net`. The vault is reachable at home (or through WireGuard); away from home the extension uses its encrypted copy. Use the extension or the app, not the web vault (ansible-prod-srv's guide explains why). In the extension's settings: lock on browser restart, and turn off Brave's own password manager (*Settings → Autofill and passwords*), so that passwords are kept in one place only |
+| **PopUpOFF** (linked from the project's site) | Hides cookie banners and overlay pop-ups | Default settings |
+| **Privacy Badger** (publisher EFF, linked from privacybadger.org) | Blocks trackers it learns, on top of Brave's Shields | Default settings |
+
+Each extension sees the pages you visit, Bitwarden also your passwords: keep the list this short, and remove an extension you no longer use. Brave updates them by itself.
+
 ### Install an application
 
 From Flathub, through Software or `flatpak install --system flathub <app id>` (as `v-admin`, or with the admin password): Flatpak apps run sandboxed. An application removed by the `apps` role comes back only if you take it off `apps_remove_packages` in a PR; otherwise the next run removes it again.
@@ -413,7 +425,7 @@ Everything is in this repository; the data of `v` comes from its own backup (doc
    ansible-playbook site.yml -K --ask-vault-pass
    sudo passwd v
    ```
-3. Log in as `v`: log in to Claude Code, GitHub and the other services again.
+3. Log in as `v`: log in to Claude Code, GitHub and the other services again, and add Brave's extensions ([Browser extensions](#browser-extensions)).
 4. `verify.md`, every section.
 5. For production, as `v-admin`: [SSH to production](#ssh-to-production) ("First time on this laptop"), and a clone of ansible-prod-srv with its `vault.yml` from the emergency key.
 
