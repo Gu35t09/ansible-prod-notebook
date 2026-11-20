@@ -56,6 +56,9 @@ claude_code_refused_groups: [sudo, admin, wheel, adm]
 # Domains sandboxed commands reach without asking. Anything else is asked.
 claude_code_sandbox_allowed_domains:
   - "github.com"
+  # gh talks to the API host; the masked token is injected only here and on
+  # github.com (see sandbox.credentials below).
+  - "api.github.com"
 
 # Days of transcripts kept in ~/.claude (an integer, at least 1).
 claude_code_cleanup_days: 30
@@ -76,7 +79,9 @@ claude_code_managed_settings:
       - "Read(~/.local/share/keyrings/**)"
       - "Read(~/.var/app/**)"
       - "Read(~/.mozilla/**)"
-      - "Read(~/.config/gh/**)"
+      # ~/.config/gh is not denied any more: the sandbox re-opens it and masks
+      # the token (sandbox.filesystem and sandbox.credentials below). The file
+      # tools still cannot read it, because of blockReadsOutsideWorkingDirectories.
       - "Read(**/vault.yml)"
       - "Read(**/.vault_pass*)"
       - "Read(**/.env)"
@@ -104,10 +109,17 @@ claude_code_managed_settings:
       - "Bash(ansible *)"
       - "Bash(ansible-playbook *)"
       - "Bash(ansible-vault *)"
-      - "Bash(git push *)"
       - "Bash(sudo *)"
       - "Bash(su *)"
       - "Bash(pkexec *)"
+    # Claude's dedicated GitHub account (not a collaborator on any repository
+    # of the owner): it forks and opens pull requests like an external
+    # contributor. Every push and every gh command is confirmed by hand; an ask
+    # rule prompts even for sandboxed commands. Prefix rules are a speed bump:
+    # the real limit is what that account is allowed to do on GitHub.
+    ask:
+      - "Bash(git push *)"
+      - "Bash(gh *)"
   # Only the rules above count: a project's .claude/settings.json, or an
   # "always allow" answer, cannot add rules, hooks or MCP servers.
   allowManagedPermissionRulesOnly: true
@@ -133,7 +145,25 @@ claude_code_managed_settings:
     # Sandboxed commands run without asking: they write only in the working
     # directory and reach only the allowed domains.
     autoAllowBashIfSandboxed: true
-    network: {}
+    # The gh config is readable inside the sandbox, but the token in it is
+    # masked: commands see a per-session placeholder, and the sandbox proxy
+    # puts the real token back only on requests to the GitHub hosts.
+    # onExtractNoMatch "error": if the pattern stops matching, the sandbox
+    # refuses to start instead of showing the real file.
+    filesystem:
+      allowRead:
+        - "~/.config/gh"
+    credentials:
+      files:
+        - path: "~/.config/gh/hosts.yml"
+          mode: "mask"
+          extract: 'oauth_token:\s*(\S+)'
+          maskDuplicates: true
+          onExtractNoMatch: "error"
+          injectHosts: ["api.github.com", "github.com"]
+    # Masking needs the proxy to see inside HTTPS (ephemeral CA per session).
+    network:
+      tlsTerminate: {}
   env:
     # No telemetry, error reports, feedback, update checks or auto-updates:
     # updates come only from this role.
